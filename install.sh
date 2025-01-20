@@ -499,34 +499,31 @@ install_dependencies() {
 install_docker() {
     log "Installation de Docker..."
 
-    if command -v docker >/dev/null 2>&1; then
-        warn "Docker est déjà installé"
-        return
-    fi
-
-    # Modification pour Ubuntu
+    # Installation des prérequis
     apt-get install -y \
         ca-certificates \
         curl \
         gnupg \
         lsb-release
 
-    # Ajout de la clé GPG Docker pour Ubuntu
+    # Ajout de la clé GPG officielle de Docker
     mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
-    # Ajout du repo Docker pour Ubuntu
+    # Configuration du repository
     echo \
         "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-}
+        $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-    # Installation de Docker
+    # Mise à jour de la liste des paquets
     apt-get update
+
+    # Installation de Docker et des outils
     apt-get install -y \
         docker-ce \
         docker-ce-cli \
         containerd.io \
+        docker-buildx-plugin \
         docker-compose-plugin
 
     # Démarrage et activation du service
@@ -534,9 +531,8 @@ install_docker() {
     systemctl enable docker
 
     # Installation de Docker Compose
-    local compose_version="v2.24.1"
     mkdir -p ~/.docker/cli-plugins/
-    curl -SL "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-$(uname -m)" -o ~/.docker/cli-plugins/docker-compose
+    curl -SL "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-$(uname -m)" -o ~/.docker/cli-plugins/docker-compose
     chmod +x ~/.docker/cli-plugins/docker-compose
 
     # Vérification de l'installation
