@@ -877,6 +877,7 @@ generate_user_services() {
 }
 
 # Génération service spécifique utilisateur
+# Génération service spécifique utilisateur
 generate_user_service() {
     local username=$1
     local service=$2
@@ -904,10 +905,9 @@ generate_user_service() {
       - "traefik.http.routers.${service}-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
       - "traefik.http.routers.${service}-${username}.middlewares=authelia@docker"
     restart: unless-stopped
-
 EOF
             ;;
-    case $service in
+            
         "calibre")
             cat >> "$DOCKER_COMPOSE_FILE" << EOF
   calibre-${username}:
@@ -928,9 +928,9 @@ EOF
       - "traefik.http.routers.calibre-${username}.middlewares=authelia@docker"
       - "traefik.http.services.calibre-${username}.loadbalancer.server.port=8083"
     restart: unless-stopped
-
 EOF
             ;;
+            
         "filebrowser")
             cat >> "$DOCKER_COMPOSE_FILE" << EOF
   files-${username}:
@@ -950,11 +950,12 @@ EOF
       - "traefik.http.routers.files-${username}.middlewares=authelia@docker"
       - "traefik.http.services.files-${username}.loadbalancer.server.port=80"
     restart: unless-stopped
-
 EOF
-            ;;			
-			
-        # Ajouter d'autres cas pour chaque type de service
+            ;;
+            
+        *)
+            warn "Service $service non reconnu"
+            ;;
     esac
 }
 
