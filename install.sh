@@ -451,35 +451,37 @@ check_docker_environment() {
 
 # Installation des dépendances système
 install_dependencies() {
-    log "Installation des dépendances système..."
+    log "Installation des dépendances..."
     
-    # Ajout de dépendances spécifiques Ubuntu
-    apt-get update
-    apt-get install -y \
-        software-properties-common \  # Ajout pour Ubuntu
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        git \
-        gnupg \
-        lsb-release \
-        sudo \
-        quota \
-        fail2ban \
-        ufw \
-        htop \
-        ncdu \
-        nano \
-        wget \
-        unzip \
-        netcat \
-        dnsutils \
-        apache2-utils \
-        acl \
-        smartmontools \
+    # Liste des paquets à installer
+    local packages=(
+        curl
+        git
+        apt-transport-https
+        ca-certificates
+        gnupg
+        lsb-release
+        sudo
+        quota
+        fail2ban
+        ufw
+        htop
+        ncdu
+        nano
+        wget
+        unzip
+        netcat
+        dnsutils
+        apache2-utils
+        acl
+        smartmontools
         bc
-}
+    )
 
+    # Mise à jour du système
+    apt-get update && apt-get upgrade -y
+
+    # Installation des paquets
     log "Installation des paquets : ${packages[*]}"
     apt-get install -y "${packages[@]}" || error "Installation des paquets échouée"
 
