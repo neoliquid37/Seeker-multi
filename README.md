@@ -1,64 +1,162 @@
-# Seeker-multi
-Cette configuration permet de déployer une seedbox multi-utilisateurs complète avec :
-- Authentification centralisée
-- Espaces utilisateurs séparés
-- Quotas de stockage
-- Interface moderne
-- Monitoring complet
+# Seedbox Multi-Utilisateurs
 
-## Prérequis
-- Debian 12 (recommandé) ou Ubuntu 22.04+
-- Docker et Docker Compose
-- Un nom de domaine configuré
-- Au moins 4GB de RAM
-- 20GB d'espace disque pour le système
+Une solution complète de seedbox multi-utilisateurs avec isolation des espaces et services pour chaque utilisateur.
 
-## Installation Rapide
+## 🚀 Caractéristiques
 
+### 📋 Services Par Utilisateur
+- 🖥️ Homarr (Dashboard personnel)
+- 📥 qBittorrent + VueTorrent (Client torrent)
+- 📺 Sonarr (Séries TV)
+- 🎬 Radarr (Films)
+- 📚 Readarr (Livres)
+- 💬 Bazarr (Sous-titres)
+- 🔍 Prowlarr (Indexeurs)
+- 📝 Overseerr (Requêtes)
+- 📖 Calibre-web (Bibliothèque ebooks)
+- 📂 Filebrowser (Accès fichiers)
+
+### 🛡️ Services Administrateur
+- 🔐 Traefik (Reverse proxy)
+- 🎥 Plex (Streaming)
+- 📊 Uptime Kuma (Monitoring)
+- 💽 Scrutiny (Surveillance disques)
+- 🔄 Watchtower (Mises à jour)
+- 💾 Duplicati (Backup)
+- 🚦 FlareSolverr (By-pass Cloudflare)
+
+### 🔒 Sécurité
+- Authentification centralisée (Authelia)
+- SSL/TLS automatique (Let's Encrypt)
+- Protection fail2ban
+- Espaces utilisateurs isolés
+- Quotas par utilisateur
+
+## 🔧 Prérequis
+
+### Matériel Recommandé
+- CPU : 4 cœurs minimum
+- RAM : 8 GB minimum
+- Stockage : 20 GB minimum pour le système
+- Connexion : 100 Mbps minimum
+
+### Système
+- Ubuntu 22.04 LTS
+- Un nom de domaine pointant vers votre serveur
+- Ports 80/443 ouverts
+
+## 📥 Installation
+
+1. Cloner le repository :
 ```bash
-git clone https://github.com/votre-repo/seedbox-multi.git
-cd seedbox-multi
-cp .env.example .env
-# Éditer .env avec vos paramètres
-./install.sh
+git clone https://github.com/votre-repo/seedbox.git
+cd seedbox
 ```
 
-## Services Inclus
-- 🔐 Authentification : Authelia
-- 🖥️ Interface : Homarr
-- 📥 Téléchargement : qBittorrent + VueTorrent
-- 🎬 Médias : Sonarr, Radarr, Bazarr
-- 🎥 Streaming : Plex
-- 📊 Monitoring : Uptime Kuma, Scrutiny
-- 🔄 Maintenance : Watchtower, Recyclarr
-- 💾 Backup : Duplicati
-- 📢 Notifications : Notifiarr
-
-## Configuration
-
-Voir [INSTALLATION.md](docs/INSTALLATION.md) pour les instructions détaillées.
-
-## Gestion des Utilisateurs
-
-Utiliser les scripts dans `scripts/` pour gérer les utilisateurs :
+2. Rendre le script exécutable :
 ```bash
-./scripts/add_user.sh username
+chmod +x install.sh
+```
+
+3. Lancer l'installation :
+```bash
+sudo ./install.sh
+```
+
+4. Suivre la configuration interactive.
+
+## ⚙️ Configuration
+
+L'installation vous demandera de configurer :
+- Domaine et email
+- Stockage et quotas
+- Paramètres de sécurité
+- Configuration des backups
+- Utilisateurs initiaux
+
+## 👥 Gestion des Utilisateurs
+
+### Ajouter un utilisateur
+```bash
+./scripts/add_user.sh username password email
+```
+
+### Modifier un quota
+```bash
+./scripts/update_quota.sh username 500 # 500GB
+```
+
+### Supprimer un utilisateur
+```bash
 ./scripts/remove_user.sh username
-./scripts/update_quotas.sh username 500 # 500GB
 ```
 
-## Maintenance
+## 📁 Structure des Dossiers
 
-Voir [MAINTENANCE.md](docs/MAINTENANCE.md) pour les tâches courantes :
-- Backup des configurations
-- Mise à jour des services
-- Gestion des quotas
-- Monitoring
+```
+/opt/seedbox/
+├── data/
+│   └── users/
+│       ├── user1/
+│       │   ├── downloads/
+│       │   ├── tv/
+│       │   ├── movies/
+│       │   └── books/
+│       └── user2/
+│           └── ...
+├── config/
+│   ├── traefik/
+│   ├── authelia/
+│   └── ...
+└── scripts/
+```
 
-## Contribution
+## 🌐 Accès
 
-Les pull requests sont les bienvenues. Pour les changements majeurs, ouvrez d'abord une issue.
+- Dashboard : `https://home.votredomaine.com`
+- Administration : `https://traefik.votredomaine.com`
+- Services : `https://{service}.votredomaine.com`
 
-## Support
+## 🔧 Maintenance
 
-En cas de problème, consultez [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+### Backups
+- Configuration automatique via Duplicati
+- Sauvegarde des configurations
+- Sauvegarde des données utilisateurs
+
+### Mises à jour
+- Mises à jour automatiques via Watchtower
+- Planification configurable
+- Logs de mise à jour
+
+### Monitoring
+- Surveillance via Uptime Kuma
+- Monitoring des disques via Scrutiny
+- Alertes configurables
+
+## 📝 Notes
+
+- Chaque utilisateur a son espace isolé
+- Les quotas sont appliqués par utilisateur
+- La maintenance est automatisée
+- Les backups sont configurables
+- Le monitoring est centralisé
+
+## ⚠️ Support
+
+Pour toute question ou problème :
+- Ouvrez une issue sur GitHub
+- Consultez la documentation dans `/docs`
+- Vérifiez les logs dans `/logs`
+
+## 🔄 Mises à jour
+
+Le script peut être mis à jour via :
+```bash
+git pull
+./scripts/update.sh
+```
+
+## 📜 License
+
+Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
