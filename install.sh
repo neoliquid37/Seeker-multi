@@ -301,36 +301,15 @@ validate_domain() {
 check_system() {
     log "Démarrage des vérifications système..."
     
-    # Vérification de l'utilisateur root
-    if [[ $EUID -ne 0 ]]; then
-        error "Ce script doit être exécuté en tant que root"
+    # Vérification de la version d'Ubuntu
+    if ! grep -q 'Ubuntu' /etc/os-release; then
+        warn "Ce script est optimisé pour Ubuntu"
+    else
+        ubuntu_version=$(lsb_release -rs)
+        if [[ $(echo "$ubuntu_version >= 20.04" | bc) -eq 0 ]]; then
+            error "Ubuntu $ubuntu_version n'est pas supporté. Utilisez Ubuntu 20.04 ou supérieur"
+        fi
     fi
-    
-    # Vérification de la connexion internet
-    check_internet
-    
-    # Vérification des prérequis système
-    check_system_requirements 8 4 20
-    
-    # Vérification des commandes requises
-    local required_commands=("curl" "wget" "git" "tar" "docker" "nc")
-    for cmd in "${required_commands[@]}"; do
-        check_command "$cmd"
-    done
-    
-    # Vérification des ports requis
-    local required_ports=("80" "443" "32400")
-    for port in "${required_ports[@]}"; do
-        check_port "$port"
-    done
-    
-    # Vérification des points de montage
-    check_mount_points
-    
-    # Vérification de la configuration réseau
-    check_network_config
-    
-    log "Vérifications système terminées avec succès"
 }
 
 # Vérification des points de montage
@@ -473,35 +452,33 @@ check_docker_environment() {
 # Installation des dépendances système
 install_dependencies() {
     log "Installation des dépendances système..."
-
-    # Mise à jour du système
-    apt-get update || error "Impossible de mettre à jour apt"
-    apt-get upgrade -y || warn "Impossible de mettre à jour les paquets"
-
-    # Installation des paquets requis
-    local packages=(
-        curl
-        git
-        apt-transport-https
-        ca-certificates
-        gnupg
-        lsb-release
-        sudo
-        quota
-        fail2ban
-        ufw
-        htop
-        ncdu
-        nano
-        wget
-        unzip
-        netcat
-        dnsutils
-        apache2-utils
-        acl
-        smartmontools
+    
+    # Ajout de dépendances spécifiques Ubuntu
+    apt-get update
+    apt-get install -y \
+        software-properties-common \  # Ajout pour Ubuntu
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        lsb-release \
+        sudo \
+        quota \
+        fail2ban \
+        ufw \
+        htop \
+        ncdu \
+        nano \
+        wget \
+        unzip \
+        netcat \
+        dnsutils \
+        apache2-utils \
+        acl \
+        smartmontools \
         bc
-    )
+}
 
     log "Installation des paquets : ${packages[*]}"
     apt-get install -y "${packages[@]}" || error "Installation des paquets échouée"
@@ -523,23 +500,24 @@ install_docker() {
     if command -v docker >/dev/null 2>&1; then
         warn "Docker est déjà installé"
         return
-    }
+    fi
 
-    # Installation des prérequis
+    # Modification pour Ubuntu
     apt-get install -y \
         ca-certificates \
         curl \
         gnupg \
         lsb-release
 
-    # Ajout de la clé GPG Docker
+    # Ajout de la clé GPG Docker pour Ubuntu
     mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
-    # Ajout du repo Docker
+    # Ajout du repo Docker pour Ubuntu
     echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
         $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+}
 
     # Installation de Docker
     apt-get update
@@ -675,6 +653,37 @@ prepare_directories() {
     chmod 600 "$INSTALL_DIR/traefik/acme.json"
 
     log "Préparation des dossiers terminée"
+}
+
+# Configuration des quotas
+setup_quotas() {
+    log "Configuration des quotas..."
+    
+    # Installation des outils de quota
+    apt-get install -y quota quotatool
+    
+    # Backup du fstab
+    backup_file "/etc/fstab"
+    
+    # Configuration pour Ubuntu
+    if ! grep -q usrquota /etc/fstab; then
+        if grep -q 'systemd' /proc/1/comm; then
+            sed -i 's/defaults/defaults,usrquota/' /etc/fstab
+        else
+            sed -i 's/ defaults / defaults,usrquota /g' /etc/fstab
+        fi
+    fi
+    
+    # Remontage du système de fichiers
+    mount -o remount,usrquota /
+    
+    # Création des fichiers de quota
+    quotacheck -cum /
+    
+    # Activation des quotas
+    quotaon -v /
+    
+    log "Configuration des quotas terminée"
 }
 
 #######################
@@ -1854,6 +1863,7 @@ main() {
     
     # 5. Préparation des dossiers
     prepare_directories
+    setup_quotas    # Ajout ici
     show_progress 5 10 "Installation"
     
     # 6. Génération des configurations
