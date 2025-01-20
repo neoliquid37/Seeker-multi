@@ -874,9 +874,9 @@ generate_user_services() {
     for service in "${USER_SERVICES[@]}"; do
         generate_user_service "$username" "$service" "$user_id"
     done
-}
+} # Accolade fermante pour generate_user_services
 
-# Génération service spécifique utilisateur
+
 # Génération service spécifique utilisateur
 generate_user_service() {
     local username=$1
@@ -1022,7 +1022,7 @@ create_system_user() {
     if id "$username" &>/dev/null; then
         warn "L'utilisateur système $username existe déjà"
         return
-    }
+    fi
 
     useradd -m -u "$user_id" -s /bin/bash "$username" || \
         error "Impossible de créer l'utilisateur système $username"
@@ -1030,7 +1030,6 @@ create_system_user() {
     # Ajout aux groupes nécessaires
     usermod -aG docker "$username"
 }
-
 # Création des dossiers utilisateur
 create_user_directories() {
     local username=$1
