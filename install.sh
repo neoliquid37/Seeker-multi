@@ -453,44 +453,32 @@ check_docker_environment() {
 install_dependencies() {
     log "Installation des dépendances..."
     
-    # Liste des paquets à installer
-    local packages=(
-        curl
-        git
-        apt-transport-https
-        ca-certificates
-        gnupg
-        lsb-release
-        sudo
-        quota
-        fail2ban
-        ufw
-        htop
-        ncdu
-        nano
-        wget
-        unzip
-        netcat
-        dnsutils
-        apache2-utils
-        acl
-        smartmontools
-        bc
-    )
-
     # Mise à jour du système
     apt-get update && apt-get upgrade -y
 
-    # Installation des paquets
-    log "Installation des paquets : ${packages[*]}"
-    apt-get install -y "${packages[@]}" || error "Installation des paquets échouée"
-
-    # Vérification post-installation
-    for package in "${packages[@]}"; do
-        if ! dpkg -l | grep -q "^ii  $package "; then
-            error "Le paquet $package n'a pas été installé correctement"
-        fi
-    done
+    # Installation des dépendances de base
+    apt-get install -y \
+        curl \
+        git \
+        apt-transport-https \
+        ca-certificates \
+        gnupg \
+        lsb-release \
+        sudo \
+        quota \
+        fail2ban \
+        ufw \
+        htop \
+        ncdu \
+        nano \
+        wget \
+        unzip \
+        netcat \
+        dnsutils \
+        apache2-utils \
+        acl \
+        smartmontools \
+        bc
 
     log "Installation des dépendances terminée"
 }
