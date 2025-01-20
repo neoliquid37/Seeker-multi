@@ -301,15 +301,28 @@ validate_domain() {
 check_system() {
     log "Démarrage des vérifications système..."
     
-    # Vérification de la version d'Ubuntu
-    if ! grep -q 'Ubuntu' /etc/os-release; then
-        warn "Ce script est optimisé pour Ubuntu"
-    else
-        ubuntu_version=$(lsb_release -rs)
-        if [[ $(echo "$ubuntu_version >= 20.04" | bc) -eq 0 ]]; then
-            error "Ubuntu $ubuntu_version n'est pas supporté. Utilisez Ubuntu 20.04 ou supérieur"
-        fi
+    # Installation de bc si non présent
+    if ! command -v bc &>/dev/null; then
+        apt-get update
+        apt-get install -y bc
     fi
+
+    # Vérification de l'utilisateur root
+    if [[ $EUID -ne 0 ]]; then
+        error "Ce script doit être exécuté en tant que root"
+    fi
+    
+    # Vérification de la connexion internet
+    check_internet
+    
+    # Vérification des prérequis système
+    check_system_requirements 8 4 20
+    
+    # Vérification des commandes requises
+    local required_commands=("curl" "wget" "git" "tar" "bc")
+    for cmd in "${required_commands[@]}"; do
+        check_command "$cmd"
+    done
 }
 
 # Vérification des points de montage
