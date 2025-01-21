@@ -661,13 +661,10 @@ setup_quotas() {
     # Installation des outils de quota
     apt-get install -y quota quotatool
     
-    # Vérification si les quotas sont déjà activés
-    if quotaon -p / >/dev/null 2>&1; then
-        log "Les quotas sont déjà activés"
-        return
-    fi
+    # Désactivation des quotas existants
+    quotaoff -a 2>/dev/null || true
     
-    # Configuration pour Ubuntu
+    # Configuration de fstab si nécessaire
     if ! grep -q usrquota /etc/fstab; then
         backup_file "/etc/fstab"
         if grep -q 'systemd' /proc/1/comm; then
@@ -675,23 +672,38 @@ setup_quotas() {
         else
             sed -i 's/ defaults / defaults,usrquota /g' /etc/fstab
         fi
+        
+        # Remontage du système de fichiers
+        mount -o remount,usrquota /
     fi
     
-    # Désactivation temporaire des quotas
-    quotaoff -a >/dev/null 2>&1
+    # Vérification forcée des quotas avec -f
+    log "Vérification des quotas..."
+    quotacheck -fugm / || log "Warning: quotacheck a rencontré des erreurs non critiques"
     
-    # Remontage du système de fichiers
-    mount -o remount /
-    
-    # Vérification forcée des quotas
-    quotacheck -fugm /
-    
-    # Réactivation des quotas
-    quotaon -v /
+    # Activation des quotas
+    log "Activation des quotas..."
+    quotaon -v / || error "Impossible d'activer les quotas"
     
     log "Configuration des quotas terminée"
 }
 
+check_quota_status() {
+    log "Vérification du statut des quotas..."
+    
+    if ! quotaon -p / >/dev/null 2>&1; then
+        warn "Les quotas ne semblent pas être activés correctement"
+        return 1
+    fi
+    
+    if ! quota -v >/dev/null 2>&1; then
+        warn "Impossible de lire les quotas"
+        return 1
+    fi
+    
+    log "Les quotas sont configurés correctement"
+    return 0
+}
 #######################
 # 5. Fonctions de génération de configuration Docker
 #######################
@@ -1867,9 +1879,14 @@ main() {
     setup_system
     show_progress 4 10 "Installation"
     
-    # 5. Préparation des dossiers
+# 5. Préparation des dossiers
     prepare_directories
-    setup_quotas    # Ajout ici
+    # Configuration des quotas avec vérification
+    if ! setup_quotas; then
+        warn "Problème lors de la configuration des quotas"
+    else
+        check_quota_status
+    fi
     show_progress 5 10 "Installation"
     
     # 6. Génération des configurations
