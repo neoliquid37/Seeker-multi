@@ -42,6 +42,9 @@ ADMIN_UID="1000"
 ADMIN_GID="1000"
 START_UID="1001" # UID de départ pour les utilisateurs normaux
 
+exec 5>&1
+trap 'echo "DEBUG: Sortie capturée: $BASH_COMMAND"' DEBUG
+
 # Tableau pour stocker les utilisateurs
 declare -A USERS
 declare -a INITIAL_USERS
@@ -1762,23 +1765,23 @@ Copy#######################
 # Fonction de nettoyage
 cleanup() {
     if [ $? -ne 0 ]; then
-        log "Erreur détectée, nettoyage en cours..."
+        echo "DEBUG: Début du nettoyage"
+        
         if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
-            cd "$INSTALL_DIR" && docker-compose down 2>/dev/null
+            echo "DEBUG: Arrêt des containers"
+            cd "$INSTALL_DIR" 
+            docker-compose down 2>/dev/null || true
         fi
         
-        for user in "${INITIAL_USERS[@]}"; do
-            username=$(echo "$user" | cut -d: -f1)
-            if id "$username" >/dev/null 2>&1; then
-                userdel -r "$username" 2>/dev/null
-            fi
-        done
+        echo "DEBUG: Vérification des processus"
+        ps aux | grep docker
         
-        if [ -d "$INSTALL_DIR" ]; then
-            mv "$INSTALL_DIR" "${INSTALL_DIR}_failed_$(date +%Y%m%d_%H%M%S)"
-        fi
+        echo "DEBUG: Contenu du dossier d'installation"
+        ls -la "$INSTALL_DIR"
         
-        log "Nettoyage terminé. Consultez les logs pour plus de détails"
+        echo "DEBUG: Dernières lignes du log"
+        tail -n 50 "$INSTALL_DIR/installation.log"
+        
         exit 1
     fi
 }
@@ -1935,7 +1938,7 @@ verify_installation() {
     log "Vérification terminée"
 }
 
-# Lancement du script
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@" | tee -a "$INSTALL_DIR/installation.log"
+    main "$@" 2>&1 | tee -a "$INSTALL_DIR/installation.log"
+    exit ${PIPESTATUS[0]}
 fi
