@@ -693,11 +693,16 @@ setup_quotas_final() {
 generate_base_docker_compose() {
     log "Génération de la configuration Docker de base..."
     
+    # Ajout de logging
+    set -x  # Active le mode debug
+    
     cat > "$DOCKER_COMPOSE_FILE" << EOF
-version: '3'
-
-services:
+    # Configuration ici
 EOF
+    
+    set +x  # Désactive le mode debug
+    
+    log "Configuration Docker générée"
 
     # Ajout de Traefik
     generate_traefik_config
