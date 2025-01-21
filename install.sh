@@ -700,28 +700,38 @@ setup_quotas_final() {
 generate_base_docker_compose() {
     log "Génération de la configuration Docker de base..."
     
-    local compose_file="$DOCKER_COMPOSE_FILE"
+    local compose_file="$INSTALL_DIR/docker-compose.yml"
     
-    {
-        echo "version: '3'"
-        echo ""
-        echo "services:"
-    } > "$compose_file"
+    # S'assurer que le répertoire existe
+    mkdir -p "$(dirname "$compose_file")"
     
-    generate_traefik_config
-    generate_authelia_config
-    generate_admin_services
+    # Initialiser le fichier avec les permissions correctes
+    echo "version: '3'
+
+services:" > "$compose_file"
     
-    log "Configuration Docker générée"
+    # Vérifier que le fichier a été créé
+    if [ ! -f "$compose_file" ]; then
+        error "Impossible de créer le fichier docker-compose.yml"
+    fi
+    
+    generate_traefik_config "$compose_file"
+    generate_authelia_config "$compose_file"
+    generate_admin_services "$compose_file"
 }
 
 # Configuration Traefik
 generate_traefik_config() {
+    local compose_file="$1"
     log "Configuration de Traefik..."
     
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
+    if [ ! -f "$compose_file" ]; then
+        error "Fichier docker-compose.yml non trouvé"
+    fi
+    
+    cat >> "$compose_file" << 'EOF'
   traefik:
-    image: ${DOCKER_IMAGES["traefik"]}
+    image: traefik:latest
     container_name: traefik
     command:
       - "--api.dashboard=true"
@@ -753,11 +763,16 @@ EOF
 
 # Configuration Authelia
 generate_authelia_config() {
+    local compose_file="$1"
     log "Configuration d'Authelia..."
     
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
+    if [ ! -f "$compose_file" ]; then
+        error "Fichier docker-compose.yml non trouvé"
+    }
+    
+    cat >> "$compose_file" << 'EOF'
   authelia:
-    image: ${DOCKER_IMAGES["authelia"]}
+    image: authelia/authelia:latest
     container_name: authelia
     volumes:
       - ./authelia:/config
@@ -767,7 +782,7 @@ generate_authelia_config() {
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.authelia.rule=Host(\`auth.${DOMAIN}\`)"
+      - "traefik.http.routers.authelia.rule=Host(`auth.${DOMAIN}`)"
       - "traefik.http.services.authelia.loadbalancer.server.port=9091"
       - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
     restart: unless-stopped
@@ -777,12 +792,13 @@ EOF
 
 # Génération des services admin
 generate_admin_services() {
+    local compose_file="$1"
     log "Génération des services administrateur..."
     
     # Plex
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
+    cat >> "$compose_file" << 'EOF'
   plex:
-    image: ${DOCKER_IMAGES["plex"]}
+    image: linuxserver/plex:latest
     container_name: plex
     network_mode: host
     environment:
@@ -796,8 +812,9 @@ generate_admin_services() {
     restart: unless-stopped
 
 EOF
-    # Ajout de FlareSolverr
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
+
+    # FlareSolverr
+    cat >> "$compose_file" << 'EOF'
   flaresolverr:
     image: ${DOCKER_IMAGES["flaresolverr"]}
     container_name: flaresolverr
@@ -818,17 +835,19 @@ EOF
 EOF
 
     # Services de monitoring
-    generate_monitoring_services
+    generate_monitoring_services "$compose_file"
 
-    # Services de backup
-    [ "$ENABLE_BACKUP" = "true" ] && generate_backup_services
+    # Ajout des services de backup si activé
+    if [ "${ENABLE_BACKUP:-false}" = "true" ]; then
+        generate_backup_services "$compose_file"
+    fi
 }
-
 # Génération services de monitoring
 generate_monitoring_services() {
+    local compose_file="$1"
     log "Configuration des services de monitoring..."
     
-    cat >> "$DOCKER_COMPOSE_FILE" << EOF
+    cat >> "$compose_file" << 'EOF'
   uptime-kuma:
     image: louislam/uptime-kuma:latest
     container_name: uptime-kuma
@@ -838,7 +857,7 @@ generate_monitoring_services() {
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.uptime.rule=Host(\`uptime.${DOMAIN}\`)"
+      - "traefik.http.routers.uptime.rule=Host(`uptime.${DOMAIN}`)"
       - "traefik.http.routers.uptime.middlewares=authelia@docker,admin-only@docker"
     restart: unless-stopped
 
@@ -853,7 +872,7 @@ generate_monitoring_services() {
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.scrutiny.rule=Host(\`disks.${DOMAIN}\`)"
+      - "traefik.http.routers.scrutiny.rule=Host(`disks.${DOMAIN}`)"
       - "traefik.http.routers.scrutiny.middlewares=authelia@docker,admin-only@docker"
     restart: unless-stopped
 
@@ -870,6 +889,32 @@ generate_monitoring_services() {
 EOF
 }
 
+generate_backup_services() {
+    local compose_file="$1"
+    log "Configuration des services de backup..."
+    
+    cat >> "$compose_file" << 'EOF'
+  duplicati:
+    image: linuxserver/duplicati:latest
+    container_name: duplicati
+    environment:
+      - PUID=${ADMIN_UID}
+      - PGID=${ADMIN_GID}
+      - TZ=${TZ}
+    volumes:
+      - ./duplicati/config:/config
+      - ./duplicati/backups:/backups
+      - ${DATA_DISK}:/source
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.duplicati.rule=Host(`backup.${DOMAIN}`)"
+      - "traefik.http.routers.duplicati.middlewares=authelia@docker,admin-only@docker"
+    restart: unless-stopped
+
+EOF
+}
 # Génération services utilisateur
 generate_user_services() {
     local username=$1
