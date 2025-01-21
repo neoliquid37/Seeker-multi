@@ -768,7 +768,7 @@ generate_authelia_config() {
     
     if [ ! -f "$compose_file" ]; then
         error "Fichier docker-compose.yml non trouvé"
-    }
+    fi  # Changement ici : } -> fi
     
     cat >> "$compose_file" << 'EOF'
   authelia:
