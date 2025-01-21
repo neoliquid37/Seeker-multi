@@ -661,11 +661,15 @@ setup_quotas() {
     # Installation des outils de quota
     apt-get install -y quota quotatool
     
-    # Backup du fstab
-    backup_file "/etc/fstab"
+    # Vérification si les quotas sont déjà activés
+    if quotaon -p / >/dev/null 2>&1; then
+        log "Les quotas sont déjà activés"
+        return
+    fi
     
     # Configuration pour Ubuntu
     if ! grep -q usrquota /etc/fstab; then
+        backup_file "/etc/fstab"
         if grep -q 'systemd' /proc/1/comm; then
             sed -i 's/defaults/defaults,usrquota/' /etc/fstab
         else
@@ -673,13 +677,16 @@ setup_quotas() {
         fi
     fi
     
+    # Désactivation temporaire des quotas
+    quotaoff -a >/dev/null 2>&1
+    
     # Remontage du système de fichiers
-    mount -o remount,usrquota /
+    mount -o remount /
     
-    # Création des fichiers de quota
-    quotacheck -cum /
+    # Vérification forcée des quotas
+    quotacheck -fugm /
     
-    # Activation des quotas
+    # Réactivation des quotas
     quotaon -v /
     
     log "Configuration des quotas terminée"
