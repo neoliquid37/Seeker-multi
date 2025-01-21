@@ -919,11 +919,11 @@ EOT
 generate_user_services() {
     local username=$1
     local user_id=$2
-    local compose_file=$3
+    local compose_file="${3:-$INSTALL_DIR/docker-compose.yml}"  # Utilise une valeur par défaut
     
     log "Génération des services pour l'utilisateur $username..."
     
-    # On s'assure que chaque service n'est généré qu'une fois
+    # Services de base pour chaque utilisateur
     for service in "${USER_SERVICES[@]}"; do
         case $service in
             "homarr"|"calibre"|"filebrowser")
@@ -1084,9 +1084,7 @@ create_user() {
     setup_user_quota "$username"
 
     # Génération des configurations Docker
-    generate_user_services "$username" "$user_id"
-
-    log "Utilisateur $username créé avec succès"
+    generate_user_services "$username" "$user_id" "$INSTALL_DIR/docker-compose.yml"
 }
 
 # Création de l'utilisateur système
