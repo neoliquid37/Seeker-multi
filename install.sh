@@ -159,7 +159,7 @@ declare -A DOCKER_IMAGES=(
     ["qbittorrent"]="linuxserver/qbittorrent:latest"
     ["sonarr"]="linuxserver/sonarr:latest"
     ["radarr"]="linuxserver/radarr:latest"
-    ["readarr"]="linuxserver/readarr:latest"
+    ["readarr"]="lscr.io/linuxserver/readarr:develop"
     ["bazarr"]="linuxserver/bazarr:latest"
     ["prowlarr"]="linuxserver/prowlarr:latest"
     ["overseerr"]="sctx/overseerr:latest"
@@ -167,7 +167,7 @@ declare -A DOCKER_IMAGES=(
     ["calibre"]="linuxserver/calibre-web:latest"
     ["filebrowser"]="filebrowser/filebrowser:latest"
     ["flaresolverr"]="ghcr.io/flaresolverr/flaresolverr:latest"
-    ["scrutiny"]="ghcr.io/analogj/scrutiny:master"  # Correction du dépôt Scrutiny
+    ["scrutiny"]="ghcr.io/analogj/scrutiny:master-omnibus"  # Correction du dépôt Scrutiny
     ["watchtower"]="containrrr/watchtower:latest"
     ["uptime-kuma"]="louislam/uptime-kuma:latest"
 )
@@ -970,11 +970,20 @@ generate_monitoring_services() {
     restart: unless-stopped
 
   scrutiny:
-    image: analogj/scrutiny:master-omnibus
+    image: ghcr.io/analogj/scrutiny:master-omnibus
     container_name: scrutiny
     privileged: true
+    ports:
+      - "8080:8080"
+      - "8086:8086"
     volumes:
-      - ./scrutiny/config:/config
+      - ./scrutiny/config:/opt/scrutiny/config
+      - ./scrutiny/influxdb:/opt/scrutiny/influxdb
+      - /run/udev:/run/udev:ro
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN  # Pour le support NVMe
+    devices:
       - /dev/sd*:/dev/sd*
     networks:
       - proxy
@@ -982,6 +991,7 @@ generate_monitoring_services() {
       - "traefik.enable=true"
       - "traefik.http.routers.scrutiny.rule=Host(\`disks.${DOMAIN}\`)"
       - "traefik.http.routers.scrutiny.middlewares=authelia@docker,admin-only@docker"
+      - "traefik.http.services.scrutiny.loadbalancer.server.port=8080"
     restart: unless-stopped
 
   watchtower:
@@ -994,6 +1004,7 @@ generate_monitoring_services() {
       - WATCHTOWER_CLEANUP=true
     restart: unless-stopped
 EOT
+}
 }
 
 generate_backup_services() {
