@@ -1764,26 +1764,19 @@ Copy#######################
 
 # Fonction de nettoyage
 cleanup() {
-    if [ $? -ne 0 ]; then
-        echo "DEBUG: Début du nettoyage"
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        log "Erreur détectée (code: $exit_code), nettoyage en cours..."
         
         if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
-            echo "DEBUG: Arrêt des containers"
-            cd "$INSTALL_DIR" 
-            docker-compose down 2>/dev/null || true
+            cd "$INSTALL_DIR" && docker-compose down 2>/dev/null || true
         fi
         
-        echo "DEBUG: Vérification des processus"
-        ps aux | grep docker
-        
-        echo "DEBUG: Contenu du dossier d'installation"
-        ls -la "$INSTALL_DIR"
-        
-        echo "DEBUG: Dernières lignes du log"
-        tail -n 50 "$INSTALL_DIR/installation.log"
-        
-        exit 1
+        if [ -d "$INSTALL_DIR" ]; then
+            mv "$INSTALL_DIR" "${INSTALL_DIR}_failed_$(date +%Y%m%d_%H%M%S)"
+        fi
     fi
+    exit $exit_code
 }
 
 # Déploiement des services
@@ -1939,6 +1932,6 @@ verify_installation() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@" 2>&1 | tee -a "$INSTALL_DIR/installation.log"
-    exit ${PIPESTATUS[0]}
+    set -e  # Arrête sur erreur
+    main "$@"
 fi
