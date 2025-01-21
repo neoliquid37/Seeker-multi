@@ -1028,20 +1028,17 @@ EOF
 # 6. Fonctions de gestion des utilisateurs
 #######################
 get_next_user_id() {
-    local last_id=0
+    local last_id=1000  # On commence à 1000 comme base
     
-    # Parcourir les utilisateurs existants pour trouver le dernier ID
-    while read -r line; do
-        if [[ "$line" =~ ^[^:]+:([^:]+): ]]; then
-            local id="${BASH_REMATCH[1]}"
-            if [[ "$id" =~ ^[0-9]+$ ]] && [ "$id" -gt "$last_id" ]; then
-                last_id="$id"
-            fi
+    # Trouver le plus grand UID >= 1000
+    while IFS=: read -r _ _ uid _; do
+        if [[ "$uid" =~ ^[0-9]+$ ]] && [ "$uid" -ge 1000 ] && [ "$uid" -gt "$last_id" ]; then
+            last_id=$uid
         fi
     done < /etc/passwd
     
-    # Retourner le prochain ID disponible (dernierID + 1)
-    echo "$((last_id - 1000 + 1))"
+    # Retourner le prochain ID
+    echo $((last_id - 1000 + 1))
 }
 
 # Création d'un utilisateur complet
