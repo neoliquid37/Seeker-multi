@@ -696,25 +696,22 @@ setup_quotas_final() {
 generate_base_docker_compose() {
     log "Génération de la configuration Docker de base..."
     
-    # Ajout de logging
-    set -x  # Active le mode debug
+    echo "DEBUG: Début generate_base_docker_compose"
     
+    # Créer le fichier docker-compose.yml de base
     cat > "$DOCKER_COMPOSE_FILE" << EOF
-    # Configuration ici
+version: '3'
+
+services:
 EOF
     
-    set +x  # Désactive le mode debug
-    
-    log "Configuration Docker générée"
-
-    # Ajout de Traefik
+    # Ajout des services
     generate_traefik_config
-
-    # Ajout d'Authelia
     generate_authelia_config
-
-    # Ajout des services administrateur
     generate_admin_services
+    
+    echo "DEBUG: Fin generate_base_docker_compose"
+    log "Configuration Docker générée"
 }
 
 # Configuration Traefik
