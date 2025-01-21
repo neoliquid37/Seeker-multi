@@ -538,20 +538,20 @@ install_docker() {
     systemctl start docker
     systemctl enable docker
 
-    # Installation de Docker Compose
-    mkdir -p ~/.docker/cli-plugins/
-    curl -SL "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-$(uname -m)" -o ~/.docker/cli-plugins/docker-compose
-    chmod +x ~/.docker/cli-plugins/docker-compose
-
+    # Installation spécifique de Docker Compose
+    log "Installation de Docker Compose..."
+    curl -L "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    
+    # Création du lien symbolique
+    ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+    
     # Vérification de l'installation
-    if ! docker --version; then
-        error "Installation de Docker échouée"
-    fi
-    if ! docker compose version; then
+    if ! docker-compose --version; then
         error "Installation de Docker Compose échouée"
     fi
-
-    log "Installation de Docker terminée avec succès"
+    
+    log "Installation de Docker Compose terminée"
 }
 
 # Configuration du pare-feu
