@@ -1005,7 +1005,6 @@ generate_monitoring_services() {
     restart: unless-stopped
 EOT
 }
-}
 
 generate_backup_services() {
     cat << EOT
