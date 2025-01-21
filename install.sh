@@ -711,26 +711,26 @@ version: '3'
 
 services:
 EOT
-    
-    # Vérifier que le fichier a été créé
-    if [ ! -f "$compose_file" ]; then
-        error "Impossible de créer le fichier docker-compose.yml"
-    fi
-    
-    # Génération des configurations de base
+
+    # Services de base
     generate_traefik_config "$compose_file"
     generate_authelia_config "$compose_file"
     generate_admin_services "$compose_file"
 
-    # Génération des services utilisateur
+    # Services utilisateur (une seule fois par utilisateur)
     for user_info in "${INITIAL_USERS[@]}"; do
         IFS=':' read -r username password _ <<< "$user_info"
         local user_id=$((1000 + $(get_next_user_id)))
         generate_user_services "$username" "$user_id" "$compose_file"
     done
 
-    # Finalisation du fichier
-    finalize_docker_compose "$compose_file"
+    # Section networks à la fin
+    cat >> "$compose_file" << EOT
+
+networks:
+  proxy:
+    external: true
+EOT
 }
 
 # Configuration Traefik
@@ -777,10 +777,6 @@ EOT
 generate_authelia_config() {
     local compose_file="$1"
     log "Configuration d'Authelia..."
-    
-    if [ ! -f "$compose_file" ]; then
-        error "Fichier docker-compose.yml non trouvé"
-    fi
     
     cat >> "$compose_file" << EOT
   authelia:
@@ -840,11 +836,8 @@ generate_admin_services() {
 
 EOT
 
+    # Ajout des services de monitoring
     generate_monitoring_services "$compose_file"
-
-    if [ "${ENABLE_BACKUP:-false}" = "true" ]; then
-        generate_backup_services "$compose_file"
-    fi
 }
 
 generate_monitoring_services() {
@@ -909,12 +902,14 @@ generate_backup_services() {
       - ./duplicati/config:/config
       - ./duplicati/backups:/backups
       - ${DATA_DISK}:/source
+      - ${BACKUP_DEST}:/backup-destination
     networks:
       - proxy
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.duplicati.rule=Host(\`backup.${DOMAIN}\`)"
       - "traefik.http.routers.duplicati.middlewares=authelia@docker,admin-only@docker"
+      - "traefik.http.services.duplicati.loadbalancer.server.port=8200"
     restart: unless-stopped
 
 EOT
@@ -924,13 +919,17 @@ EOT
 generate_user_services() {
     local username=$1
     local user_id=$2
-    local compose_file="$INSTALL_DIR/docker-compose.yml"
+    local compose_file=$3
     
     log "Génération des services pour l'utilisateur $username..."
     
-    # Services de base pour chaque utilisateur
+    # On s'assure que chaque service n'est généré qu'une fois
     for service in "${USER_SERVICES[@]}"; do
-        generate_user_service "$username" "$service" "$user_id" "$compose_file"
+        case $service in
+            "homarr"|"calibre"|"filebrowser")
+                generate_user_service "$username" "$service" "$user_id" "$compose_file"
+                ;;
+        esac
     done
 }
 
@@ -945,9 +944,9 @@ generate_user_service() {
     case $service in
         "homarr")
             cat >> "$compose_file" << EOT
-  ${service}-${username}:
+  homarr-${username}:
     image: ${DOCKER_IMAGES[$service]}
-    container_name: ${service}-${username}
+    container_name: homarr-${username}
     environment:
       - PUID=${user_id}
       - PGID=${user_id}
@@ -959,8 +958,8 @@ generate_user_service() {
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.${service}-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
-      - "traefik.http.routers.${service}-${username}.middlewares=authelia@docker"
+      - "traefik.http.routers.homarr-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
+      - "traefik.http.routers.homarr-${username}.middlewares=authelia@docker"
     restart: unless-stopped
 
 EOT
