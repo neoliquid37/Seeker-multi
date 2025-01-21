@@ -292,41 +292,42 @@ check_system_requirements() {
     # Vérification de Docker
     if ! command -v docker >/dev/null 2>&1; then
         error "Docker n'est pas installé"
-    }
+    fi  # Changé } en fi
 
     # Vérification de la version de Docker
     local docker_version
     docker_version=$(docker --version | awk '{print $3}' | tr -d ',')
     if ! printf '%s\n' "20.10.0" "$docker_version" | sort -V -C; then
         error "Version de Docker trop ancienne. Version 20.10.0 ou supérieure requise"
-    }
+    fi  # Changé } en fi
 
     # Vérification des permissions Docker
     if ! docker ps >/dev/null 2>&1; then
         error "Permissions Docker insuffisantes"
-    }
+    fi  # Changé } en fi
 
     log "Vérification des prérequis système terminée avec succès"
 }
 
+# Vérification de Docker Compose
 validate_docker_compose() {
     local compose_file="$1"
     log "Validation de la configuration Docker Compose..."
 
     if ! command -v docker-compose &>/dev/null; then
         error "docker-compose n'est pas installé"
-    fi
+    fi  # Changé } en fi
 
     if [ ! -f "$compose_file" ]; then
         error "Le fichier $compose_file n'existe pas"
-    fi
+    fi  # Changé } en fi
 
     # Vérification de la syntaxe
     if ! docker-compose -f "$compose_file" config --quiet; then
         # En cas d'erreur, afficher le détail
         docker-compose -f "$compose_file" config
         error "La configuration Docker Compose est invalide"
-    fi
+    fi  # Changé } en fi
 
     log "Configuration Docker Compose validée"
 }
