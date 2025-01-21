@@ -1027,6 +1027,22 @@ EOF
 #######################
 # 6. Fonctions de gestion des utilisateurs
 #######################
+get_next_user_id() {
+    local last_id=0
+    
+    # Parcourir les utilisateurs existants pour trouver le dernier ID
+    while read -r line; do
+        if [[ "$line" =~ ^[^:]+:([^:]+): ]]; then
+            local id="${BASH_REMATCH[1]}"
+            if [[ "$id" =~ ^[0-9]+$ ]] && [ "$id" -gt "$last_id" ]; then
+                last_id="$id"
+            fi
+        fi
+    done < /etc/passwd
+    
+    # Retourner le prochain ID disponible (dernierID + 1)
+    echo "$((last_id - 1000 + 1))"
+}
 
 # Création d'un utilisateur complet
 create_user() {
