@@ -766,27 +766,30 @@ EOT
     generate_admin_services "$compose_file"
 
     # Services utilisateur
-    declare -A generated_services
-    for user_info in "${INITIAL_USERS[@]}"; do
-        if [ -n "$user_info" ]; then
-            IFS=':' read -r username password _ <<< "$user_info"
-            if [ -n "$username" ]; then
-                local user_id=$((1000 + $(get_next_user_id)))
-                if [ -z "${generated_services[$username]:-}" ]; then
+    if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
+        for user_info in "${INITIAL_USERS[@]}"; do
+            if [ -n "$user_info" ]; then
+                IFS=':' read -r username password _ <<< "$user_info"
+                if [ -n "$username" ]; then
+                    local user_id=$((1000 + $(get_next_user_id)))
                     generate_user_services "$username" "$user_id" "$compose_file"
-                    generated_services[$username]=1
                 fi
             fi
-        fi
-    done
+        done
+    fi
 
-    # Finalisation
+    # Ajouter UNIQUEMENT la section networks à la fin
     cat >> "$compose_file" << EOT
 
 networks:
   proxy:
     external: true
 EOT
+
+    # Vérifier la configuration finale
+    if ! docker-compose -f "$compose_file" config --quiet; then
+        error "Configuration Docker Compose invalide"
+    fi
 }
 
 # Configuration Traefik
