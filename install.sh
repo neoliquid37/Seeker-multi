@@ -895,10 +895,7 @@ EOT
 }
 
 generate_authelia_config() {
-    local compose_file="$1"
-    log "Configuration d'Authelia..."
-    
-    cat >> "$compose_file" << EOT
+    cat << EOT
   authelia:
     image: authelia/authelia:latest
     container_name: authelia
@@ -914,15 +911,11 @@ generate_authelia_config() {
       - "traefik.http.services.authelia.loadbalancer.server.port=9091"
       - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
     restart: unless-stopped
-
 EOT
 }
 
 generate_admin_services() {
-    local compose_file="$1"
-    log "Génération des services administrateur..."
-    
-    cat >> "$compose_file" << EOT
+    cat << EOT
   plex:
     image: linuxserver/plex:latest
     container_name: plex
@@ -953,18 +946,13 @@ generate_admin_services() {
       timeout: 10s
       retries: 3
     restart: unless-stopped
-
 EOT
 
-    # Ajout des services de monitoring
-    generate_monitoring_services "$compose_file"
+    generate_monitoring_services
 }
 
 generate_monitoring_services() {
-    local compose_file="$1"
-    log "Configuration des services de monitoring..."
-    
-    cat >> "$compose_file" << EOT
+    cat << EOT
   uptime-kuma:
     image: louislam/uptime-kuma:latest
     container_name: uptime-kuma
@@ -1002,15 +990,11 @@ generate_monitoring_services() {
       - WATCHTOWER_SCHEDULE=0 0 ${MAINTENANCE_TIME#*:} * * *
       - WATCHTOWER_CLEANUP=true
     restart: unless-stopped
-
 EOT
 }
 
 generate_backup_services() {
-    local compose_file="$1"
-    log "Configuration des services de backup..."
-    
-    cat >> "$compose_file" << EOT
+    cat << EOT
   duplicati:
     image: linuxserver/duplicati:latest
     container_name: duplicati
@@ -1031,105 +1015,71 @@ generate_backup_services() {
       - "traefik.http.routers.duplicati.middlewares=authelia@docker,admin-only@docker"
       - "traefik.http.services.duplicati.loadbalancer.server.port=8200"
     restart: unless-stopped
-
 EOT
 }
 
 # Génération services utilisateur
 generate_user_services() {
-    local username="$1"
-    local user_id="$2"
-    local compose_file="$3"
-
-    debug_log "Génération des services pour l'utilisateur $username"
+    local username=$1
+    local user_id=$2
     
-    local temp_file=$(mktemp)
-    debug_log "Utilisation du fichier temporaire $temp_file"
+    # Génération directe avec heredoc
+    cat << EOT
+  homarr-${username}:
+    image: ${DOCKER_IMAGES[homarr]:-ghcr.io/ajnart/homarr:latest}
+    container_name: homarr-${username}
+    environment:
+      - PUID=${user_id}
+      - PGID=${user_id}
+      - TZ=${TZ}
+    volumes:
+      - ./homarr/${username}:/app/data/configs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.homarr-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
+      - "traefik.http.routers.homarr-${username}.middlewares=authelia@docker"
+    restart: unless-stopped
 
-    for service in "homarr" "calibre" "filebrowser"; do
-        debug_log "Génération du service $service"
-        generate_user_service "$username" "$service" "$user_id" "$temp_file"
-    done
+  calibre-${username}:
+    image: ${DOCKER_IMAGES[calibre]:-linuxserver/calibre-web:latest}
+    container_name: calibre-${username}
+    environment:
+      - PUID=${user_id}
+      - PGID=${user_id}
+      - TZ=${TZ}
+    volumes:
+      - ./calibre/${username}:/config
+      - ./data/users/${username}/books:/books
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.calibre-${username}.rule=Host(\`books.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
+      - "traefik.http.routers.calibre-${username}.middlewares=authelia@docker"
+      - "traefik.http.services.calibre-${username}.loadbalancer.server.port=8083"
+    restart: unless-stopped
 
-    # Vérification du contenu temporaire
-    inspect_docker_compose "$temp_file" "services de $username"
-
-    # Ajout au fichier principal
-    cat "$temp_file" >> "$compose_file"
-    rm "$temp_file"
-
-    debug_log "Services terminés pour $username"
-}
-
-generate_user_services() {
-    local username="$1"
-    local user_id="$2"
-    local compose_file="$3"
-    
-    log "Génération des services pour l'utilisateur $username..."
-
-    {
-        # Homarr
-        echo "  homarr-${username}:"
-        echo "    image: ${DOCKER_IMAGES[homarr]:-ghcr.io/ajnart/homarr:latest}"
-        echo "    container_name: homarr-${username}"
-        echo "    environment:"
-        echo "      - PUID=${user_id}"
-        echo "      - PGID=${user_id}"
-        echo "      - TZ=${TZ}"
-        echo "    volumes:"
-        echo "      - ./homarr/${username}:/app/data/configs"
-        echo "      - /var/run/docker.sock:/var/run/docker.sock:ro"
-        echo "    networks:"
-        echo "      - proxy"
-        echo "    labels:"
-        echo "      - \"traefik.enable=true\""
-        echo "      - \"traefik.http.routers.homarr-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)\""
-        echo "      - \"traefik.http.routers.homarr-${username}.middlewares=authelia@docker\""
-        echo "    restart: unless-stopped"
-        echo ""
-
-        # Calibre
-        echo "  calibre-${username}:"
-        echo "    image: ${DOCKER_IMAGES[calibre]:-linuxserver/calibre-web:latest}"
-        echo "    container_name: calibre-${username}"
-        echo "    environment:"
-        echo "      - PUID=${user_id}"
-        echo "      - PGID=${user_id}"
-        echo "      - TZ=${TZ}"
-        echo "    volumes:"
-        echo "      - ./calibre/${username}:/config"
-        echo "      - ./data/users/${username}/books:/books"
-        echo "    networks:"
-        echo "      - proxy"
-        echo "    labels:"
-        echo "      - \"traefik.enable=true\""
-        echo "      - \"traefik.http.routers.calibre-${username}.rule=Host(\`books.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)\""
-        echo "      - \"traefik.http.routers.calibre-${username}.middlewares=authelia@docker\""
-        echo "      - \"traefik.http.services.calibre-${username}.loadbalancer.server.port=8083\""
-        echo "    restart: unless-stopped"
-        echo ""
-
-        # Filebrowser
-        echo "  files-${username}:"
-        echo "    image: ${DOCKER_IMAGES[filebrowser]:-filebrowser/filebrowser:latest}"
-        echo "    container_name: files-${username}"
-        echo "    user: \"${user_id}:${user_id}\""
-        echo "    volumes:"
-        echo "      - ./filebrowser/${username}:/config"
-        echo "      - ./data/users/${username}:/data"
-        echo "    environment:"
-        echo "      - TZ=${TZ}"
-        echo "    networks:"
-        echo "      - proxy"
-        echo "    labels:"
-        echo "      - \"traefik.enable=true\""
-        echo "      - \"traefik.http.routers.files-${username}.rule=Host(\`files.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)\""
-        echo "      - \"traefik.http.routers.files-${username}.middlewares=authelia@docker\""
-        echo "      - \"traefik.http.services.files-${username}.loadbalancer.server.port=80\""
-        echo "    restart: unless-stopped"
-        echo ""
-    } >> "$compose_file"
+  files-${username}:
+    image: ${DOCKER_IMAGES[filebrowser]:-filebrowser/filebrowser:latest}
+    container_name: files-${username}
+    user: "${user_id}:${user_id}"
+    volumes:
+      - ./filebrowser/${username}:/config
+      - ./data/users/${username}:/data
+    environment:
+      - TZ=${TZ}
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.files-${username}.rule=Host(\`files.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
+      - "traefik.http.routers.files-${username}.middlewares=authelia@docker"
+      - "traefik.http.services.files-${username}.loadbalancer.server.port=80"
+    restart: unless-stopped
+EOT
 }
 
 # Finalisation du docker-compose
@@ -1772,8 +1722,15 @@ configure_domain_settings() {
         fi
     done
     
-    read -p "Entrez votre email (pour Let's Encrypt): " USER_EMAIL
-    validate_email "$USER_EMAIL" && EMAIL=$USER_EMAIL
+    while true; do
+        read -p "Entrez votre email (pour Let's Encrypt): " USER_EMAIL
+        if validate_email "$USER_EMAIL"; then
+            EMAIL=$USER_EMAIL
+            break
+        else
+            warn "Email invalide, réessayez"
+        fi
+    done
 }
 
 # Configuration admin
@@ -1846,11 +1803,24 @@ configure_backup_settings() {
         read -p "Destination des backups [$BACKUP_DEST]: " USER_BACKUP_DEST
         BACKUP_DEST=${USER_BACKUP_DEST:-$BACKUP_DEST}
         
-        read -p "Fréquence des backups (Daily/Weekly/Monthly) [$BACKUP_FREQUENCY]: " USER_BACKUP_FREQ
-        BACKUP_FREQUENCY=${USER_BACKUP_FREQ:-$BACKUP_FREQUENCY}
+        while true; do
+            read -p "Fréquence des backups (Daily/Weekly/Monthly) [$BACKUP_FREQUENCY]: " USER_BACKUP_FREQ
+            USER_BACKUP_FREQ=${USER_BACKUP_FREQ:-$BACKUP_FREQUENCY}
+            if [[ "$USER_BACKUP_FREQ" =~ ^(Daily|Weekly|Monthly)$ ]]; then
+                BACKUP_FREQUENCY=$USER_BACKUP_FREQ
+                break
+            else
+                warn "Fréquence invalide, utilisez Daily, Weekly ou Monthly"
+            fi
+        done
         
         read -p "Rétention des backups en jours [30]: " USER_BACKUP_RETENTION
-        BACKUP_RETENTION=${USER_BACKUP_RETENTION:-30}
+        if [[ "$USER_BACKUP_RETENTION" =~ ^[0-9]+$ ]]; then
+            BACKUP_RETENTION=${USER_BACKUP_RETENTION:-30}
+        else
+            warn "Valeur de rétention invalide, utilisation de la valeur par défaut (30)"
+            BACKUP_RETENTION=30
+        fi
     fi
 }
 
@@ -1858,11 +1828,26 @@ configure_backup_settings() {
 configure_maintenance_settings() {
     echo -e "\n${BLUE}=== Configuration de la maintenance ===${NC}"
     
-    read -p "Heure de maintenance (format 24h) [$MAINTENANCE_TIME]: " USER_MAINT_TIME
-    MAINTENANCE_TIME=${USER_MAINT_TIME:-$MAINTENANCE_TIME}
+    while true; do
+        read -p "Heure de maintenance (format 24h) [$MAINTENANCE_TIME]: " USER_MAINT_TIME
+        if [[ "$USER_MAINT_TIME" =~ ^([0-1][0-9]|2[0-3]):[0-5][0-9]$ ]] || [ -z "$USER_MAINT_TIME" ]; then
+            MAINTENANCE_TIME=${USER_MAINT_TIME:-$MAINTENANCE_TIME}
+            break
+        else
+            warn "Format d'heure invalide (utilisez HH:MM)"
+        fi
+    done
     
-    read -p "Jour de maintenance complète [$MAINTENANCE_DAY]: " USER_MAINT_DAY
-    MAINTENANCE_DAY=${USER_MAINT_DAY:-$MAINTENANCE_DAY}
+    local valid_days="Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday"
+    while true; do
+        read -p "Jour de maintenance complète [$MAINTENANCE_DAY]: " USER_MAINT_DAY
+        if [[ "$USER_MAINT_DAY" =~ ^($valid_days)$ ]] || [ -z "$USER_MAINT_DAY" ]; then
+            MAINTENANCE_DAY=${USER_MAINT_DAY:-$MAINTENANCE_DAY}
+            break
+        else
+            warn "Jour invalide, utilisez un jour de la semaine en anglais"
+        fi
+    done
 }
 
 # Configuration des utilisateurs
