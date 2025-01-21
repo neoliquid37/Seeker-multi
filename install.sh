@@ -753,12 +753,10 @@ generate_base_docker_compose() {
     # S'assurer que le répertoire existe
     mkdir -p "$(dirname "$compose_file")"
     
-    # Initialiser le fichier avec les permissions correctes
-    cat > "$compose_file" << EOT
-version: '3'
-
-services:
-EOT
+    # Initialiser le fichier
+    echo "version: '3'" > "$compose_file"
+    echo "" >> "$compose_file"
+    echo "services:" >> "$compose_file"
     
     # Services de base
     generate_traefik_config "$compose_file"
@@ -766,30 +764,21 @@ EOT
     generate_admin_services "$compose_file"
 
     # Services utilisateur
-    if [ ${#INITIAL_USERS[@]} -gt 0 ]; then
-        for user_info in "${INITIAL_USERS[@]}"; do
-            if [ -n "$user_info" ]; then
-                IFS=':' read -r username password _ <<< "$user_info"
-                if [ -n "$username" ]; then
-                    local user_id=$((1000 + $(get_next_user_id)))
-                    generate_user_services "$username" "$user_id" "$compose_file"
-                fi
+    for user_info in "${INITIAL_USERS[@]}"; do
+        if [ -n "$user_info" ]; then
+            IFS=':' read -r username password _ <<< "$user_info"
+            if [ -n "$username" ]; then
+                local user_id=$((1000 + $(get_next_user_id)))
+                generate_user_services "$username" "$user_id" "$compose_file"
             fi
-        done
-    fi
+        fi
+    done
 
-    # Ajouter UNIQUEMENT la section networks à la fin
-    cat >> "$compose_file" << EOT
-
-networks:
-  proxy:
-    external: true
-EOT
-
-    # Vérifier la configuration finale
-    if ! docker-compose -f "$compose_file" config --quiet; then
-        error "Configuration Docker Compose invalide"
-    fi
+    # Fin du fichier
+    echo "" >> "$compose_file"
+    echo "networks:" >> "$compose_file"
+    echo "  proxy:" >> "$compose_file"
+    echo "    external: true" >> "$compose_file"
 }
 
 # Configuration Traefik
@@ -981,8 +970,8 @@ generate_user_services() {
     local compose_file=$3
     
     log "Génération des services pour l'utilisateur $username..."
-    
-    # On s'assure que chaque service n'est généré qu'une fois
+
+    # Génération des services un par un
     for service in "homarr" "calibre" "filebrowser"; do
         generate_user_service "$username" "$service" "$user_id" "$compose_file"
     done
@@ -1001,92 +990,78 @@ generate_user_service() {
         error "Paramètres manquants pour generate_user_service"
     fi
 
-    # Vérification des variables globales nécessaires
-    if [[ -z "$DOMAIN" ]] || [[ -z "$TZ" ]]; then
-        error "Variables d'environnement DOMAIN ou TZ non définies"
-    fi
-    
+    # Vérification que nous écrivons dans la section services
     case $service in
         "homarr")
-            cat >> "$compose_file" << EOT
-  ${service}-${username}:
-    image: ${DOCKER_IMAGES[$service]:-ghcr.io/ajnart/homarr:latest}
-    container_name: ${service}-${username}
-    environment:
-      - PUID=${user_id}
-      - PGID=${user_id}
-      - TZ=${TZ}
-    volumes:
-      - ./${service}/${username}:/app/data/configs
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.${service}-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
-      - "traefik.http.routers.${service}-${username}.middlewares=authelia@docker"
-    restart: unless-stopped
-
-EOT
+            {
+                echo "  ${service}-${username}:"
+                echo "    image: ${DOCKER_IMAGES[$service]:-ghcr.io/ajnart/homarr:latest}"
+                echo "    container_name: ${service}-${username}"
+                echo "    environment:"
+                echo "      - PUID=${user_id}"
+                echo "      - PGID=${user_id}"
+                echo "      - TZ=${TZ}"
+                echo "    volumes:"
+                echo "      - ./${service}/${username}:/app/data/configs"
+                echo "      - /var/run/docker.sock:/var/run/docker.sock:ro"
+                echo "    networks:"
+                echo "      - proxy"
+                echo "    labels:"
+                echo "      - \"traefik.enable=true\""
+                echo "      - \"traefik.http.routers.${service}-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)\""
+                echo "      - \"traefik.http.routers.${service}-${username}.middlewares=authelia@docker\""
+                echo "    restart: unless-stopped"
+                echo ""
+            } >> "$compose_file"
             ;;
             
         "calibre")
-            cat >> "$compose_file" << EOT
-  ${service}-${username}:
-    image: ${DOCKER_IMAGES[$service]:-linuxserver/calibre-web:latest}
-    container_name: ${service}-${username}
-    environment:
-      - PUID=${user_id}
-      - PGID=${user_id}
-      - TZ=${TZ}
-    volumes:
-      - ./${service}/${username}:/config
-      - ./data/users/${username}/books:/books
-    networks:
-      - proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.${service}-${username}.rule=Host(\`books.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
-      - "traefik.http.routers.${service}-${username}.middlewares=authelia@docker"
-      - "traefik.http.services.${service}-${username}.loadbalancer.server.port=8083"
-    restart: unless-stopped
-
-EOT
+            {
+                echo "  ${service}-${username}:"
+                echo "    image: ${DOCKER_IMAGES[$service]:-linuxserver/calibre-web:latest}"
+                echo "    container_name: ${service}-${username}"
+                echo "    environment:"
+                echo "      - PUID=${user_id}"
+                echo "      - PGID=${user_id}"
+                echo "      - TZ=${TZ}"
+                echo "    volumes:"
+                echo "      - ./${service}/${username}:/config"
+                echo "      - ./data/users/${username}/books:/books"
+                echo "    networks:"
+                echo "      - proxy"
+                echo "    labels:"
+                echo "      - \"traefik.enable=true\""
+                echo "      - \"traefik.http.routers.${service}-${username}.rule=Host(\`books.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)\""
+                echo "      - \"traefik.http.routers.${service}-${username}.middlewares=authelia@docker\""
+                echo "      - \"traefik.http.services.${service}-${username}.loadbalancer.server.port=8083\""
+                echo "    restart: unless-stopped"
+                echo ""
+            } >> "$compose_file"
             ;;
             
         "filebrowser")
-            cat >> "$compose_file" << EOT
-  files-${username}:
-    image: ${DOCKER_IMAGES[$service]:-filebrowser/filebrowser:latest}
-    container_name: files-${username}
-    user: "${user_id}:${user_id}"
-    volumes:
-      - ./filebrowser/${username}:/config
-      - ./data/users/${username}:/data
-    environment:
-      - TZ=${TZ}
-    networks:
-      - proxy
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.files-${username}.rule=Host(\`files.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
-      - "traefik.http.routers.files-${username}.middlewares=authelia@docker"
-      - "traefik.http.services.files-${username}.loadbalancer.server.port=80"
-    restart: unless-stopped
-
-EOT
-            ;;
-            
-        *)
-            warn "Service $service non reconnu"
-            return 1
+            {
+                echo "  files-${username}:"
+                echo "    image: ${DOCKER_IMAGES[$service]:-filebrowser/filebrowser:latest}"
+                echo "    container_name: files-${username}"
+                echo "    user: \"${user_id}:${user_id}\""
+                echo "    volumes:"
+                echo "      - ./filebrowser/${username}:/config"
+                echo "      - ./data/users/${username}:/data"
+                echo "    environment:"
+                echo "      - TZ=${TZ}"
+                echo "    networks:"
+                echo "      - proxy"
+                echo "    labels:"
+                echo "      - \"traefik.enable=true\""
+                echo "      - \"traefik.http.routers.files-${username}.rule=Host(\`files.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)\""
+                echo "      - \"traefik.http.routers.files-${username}.middlewares=authelia@docker\""
+                echo "      - \"traefik.http.services.files-${username}.loadbalancer.server.port=80\""
+                echo "    restart: unless-stopped"
+                echo ""
+            } >> "$compose_file"
             ;;
     esac
-
-    # Vérification que l'écriture s'est bien passée
-    if [ $? -ne 0 ]; then
-        error "Erreur lors de la génération de la configuration pour ${service}-${username}"
-    fi
 }
 
 # Finalisation du docker-compose
