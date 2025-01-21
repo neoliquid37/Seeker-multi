@@ -46,8 +46,9 @@ set -e  # Stop on error
 set -u  # Error on undefined variables
 set -o pipefail  # Exit on pipe failures
 
+# Configuration du trap pour le nettoyage
 exec 5>&1
-trap 'echo "DEBUG: Sortie capturée: $BASH_COMMAND"' DEBUG
+trap 'cleanup $?' EXIT
 
 # Tableau pour stocker les utilisateurs
 declare -A USERS
@@ -764,20 +765,22 @@ EOT
     generate_authelia_config "$compose_file"
     generate_admin_services "$compose_file"
 
-    # Services utilisateur (on garde trace des services déjà générés)
+    # Services utilisateur
     declare -A generated_services
     for user_info in "${INITIAL_USERS[@]}"; do
-        IFS=':' read -r username password _ <<< "$user_info"
-        local user_id=$((1000 + $(get_next_user_id)))
-        
-        # On vérifie que les services n'ont pas déjà été générés pour cet utilisateur
-        if [[ -z "${generated_services[$username]}" ]]; then
-            generate_user_services "$username" "$user_id" "$compose_file"
-            generated_services[$username]=1
+        if [ -n "$user_info" ]; then
+            IFS=':' read -r username password _ <<< "$user_info"
+            if [ -n "$username" ]; then
+                local user_id=$((1000 + $(get_next_user_id)))
+                if [ -z "${generated_services[$username]:-}" ]; then
+                    generate_user_services "$username" "$user_id" "$compose_file"
+                    generated_services[$username]=1
+                fi
+            fi
         fi
     done
 
-    # Finalisation avec la section networks
+    # Finalisation
     cat >> "$compose_file" << EOT
 
 networks:
@@ -1895,7 +1898,7 @@ show_config_summary() {
 
 # Fonction de nettoyage
 cleanup() {
-    local exit_code=$1
+    local exit_code=${1:-1}  # Valeur par défaut de 1 si non spécifié
     local keep_data=${2:-false}
     
     if [ $exit_code -ne 0 ]; then
@@ -1911,13 +1914,6 @@ cleanup() {
             local backup_dir="${INSTALL_DIR}_failed_$(date +%Y%m%d_%H%M%S)"
             mv "$INSTALL_DIR" "$backup_dir"
             log "Configuration sauvegardée dans $backup_dir"
-        fi
-        
-        # Nettoyage des utilisateurs si nécessaire
-        if [ "$keep_data" = "false" ]; then
-            for username in "${INITIAL_USERS[@]}"; do
-                userdel -r "$username" 2>/dev/null || true
-            done
         fi
     fi
 }
