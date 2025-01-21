@@ -1,6 +1,47 @@
 #!/bin/bash
 
 #######################
+# Fonctions de débogage
+#######################
+debug_log() {
+    local message="$1"
+    echo -e "${BLUE}[DEBUG][$(date '+%Y-%m-%d %H:%M:%S')]${NC} $message" >&2
+}
+
+inspect_docker_compose() {
+    local file="$1"
+    local message="$2"
+    
+    debug_log "=== Inspection du fichier ($message) ==="
+    debug_log "Contenu du fichier $file :"
+    cat "$file" | while IFS= read -r line; do
+        echo "    $line"
+    done
+    debug_log "=== Fin de l'inspection ==="
+}
+
+validate_user_data() {
+    local username="$1"
+    local user_id="$2"
+    local compose_file="$3"
+
+    debug_log "Validation des données pour l'utilisateur $username"
+
+    if [[ -z "$username" ]] || [[ -z "$user_id" ]] || [[ -z "$compose_file" ]]; then
+        error "Données utilisateur invalides : username=$username, user_id=$user_id, compose_file=$compose_file"
+    fi
+
+    if [[ ! "$user_id" =~ ^[0-9]+$ ]]; then
+        error "ID utilisateur invalide : $user_id"
+    fi
+
+    if [[ ! -w "$compose_file" ]]; then
+        error "Fichier non accessible en écriture : $compose_file"
+    fi
+
+    debug_log "Validation des données utilisateur réussie"
+}
+#######################
 # 1. Variables et constantes
 #######################
 
@@ -749,9 +790,13 @@ generate_base_docker_compose() {
     log "Génération de la configuration Docker de base..."
     
     local compose_file="$INSTALL_DIR/docker-compose.yml"
+    debug_log "Début de la génération dans $compose_file"
     
     # Supprimer le fichier s'il existe déjà
-    [ -f "$compose_file" ] && rm "$compose_file"
+    if [ -f "$compose_file" ]; then
+        debug_log "Suppression de l'ancien fichier"
+        rm "$compose_file"
+    fi
     
     # S'assurer que le répertoire existe
     mkdir -p "$(dirname "$compose_file")"
@@ -763,23 +808,50 @@ generate_base_docker_compose() {
         echo "services:"
     } > "$compose_file"
     
+    inspect_docker_compose "$compose_file" "après structure initiale"
+
     # Services de base
+    debug_log "Génération des services de base"
     generate_traefik_config "$compose_file"
+    inspect_docker_compose "$compose_file" "après Traefik"
+    
     generate_authelia_config "$compose_file"
+    inspect_docker_compose "$compose_file" "après Authelia"
+    
     generate_admin_services "$compose_file"
+    inspect_docker_compose "$compose_file" "après services admin"
 
     # Services utilisateur
+    debug_log "Début de la génération des services utilisateur"
+    local processed_users=()
+    
+    # Traitement des utilisateurs
     for user_info in "${INITIAL_USERS[@]}"; do
         if [ -n "$user_info" ]; then
             IFS=':' read -r username password _ <<< "$user_info"
             if [ -n "$username" ]; then
+                if [[ " ${processed_users[*]} " =~ " ${username} " ]]; then
+                    debug_log "Utilisateur $username déjà traité, ignoré"
+                    continue
+                fi
+                
+                debug_log "Traitement de l'utilisateur $username"
                 local user_id=$((1000 + $(get_next_user_id)))
+                
+                # Validation des données utilisateur
+                validate_user_data "$username" "$user_id" "$compose_file"
+                
+                # Génération des services utilisateur
                 generate_user_services "$username" "$user_id" "$compose_file"
+                processed_users+=("$username")
+                
+                inspect_docker_compose "$compose_file" "après services de $username"
             fi
         fi
     done
 
-    # Network section à la fin, après TOUS les services
+    # Section networks
+    debug_log "Ajout de la section networks"
     {
         echo ""
         echo "networks:"
@@ -787,11 +859,15 @@ generate_base_docker_compose() {
         echo "    external: true"
     } >> "$compose_file"
 
-    # Vérification de la structure
+    # Vérification finale
+    debug_log "Validation de la configuration finale"
     if ! docker-compose -f "$compose_file" config --quiet; then
-        cat "$compose_file"  # Afficher le contenu pour debug
-        error "Structure du fichier docker-compose.yml invalide"
+        debug_log "ERREUR : Configuration invalide"
+        cat "$compose_file"
+        error "Configuration Docker Compose invalide"
     fi
+
+    debug_log "Génération terminée avec succès"
 }
 
 # Fonction de validation du fichier
@@ -1001,16 +1077,28 @@ EOT
 
 # Génération services utilisateur
 generate_user_services() {
-    local username=$1
-    local user_id=$2
-    local compose_file=$3
-    
-    log "Génération des services pour l'utilisateur $username..."
+    local username="$1"
+    local user_id="$2"
+    local compose_file="$3"
 
-    # Génération des services un par un
+    debug_log "Génération des services pour l'utilisateur $username"
+    
+    local temp_file=$(mktemp)
+    debug_log "Utilisation du fichier temporaire $temp_file"
+
     for service in "homarr" "calibre" "filebrowser"; do
-        generate_user_service "$username" "$service" "$user_id" "$compose_file"
+        debug_log "Génération du service $service"
+        generate_user_service "$username" "$service" "$user_id" "$temp_file"
     done
+
+    # Vérification du contenu temporaire
+    inspect_docker_compose "$temp_file" "services de $username"
+
+    # Ajout au fichier principal
+    cat "$temp_file" >> "$compose_file"
+    rm "$temp_file"
+
+    debug_log "Services terminés pour $username"
 }
 
 generate_user_services() {
