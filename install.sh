@@ -263,26 +263,72 @@ show_progress() {
 
 # Vérification des prérequis système
 check_system_requirements() {
-    local min_ram=$1
-    local min_cpu=$2
-    local min_disk=$3
-    
-    # Vérification RAM
-    local total_ram
-    total_ram=$(free -g | awk '/^Mem:/{print $2}')
-    if [ "$total_ram" -lt "$min_ram" ]; then
-        warn "RAM insuffisante: ${total_ram}GB (minimum recommandé: ${min_ram}GB)"
-    fi
-    
+    log "Vérification des prérequis système..."
+
+    # Vérification de l'espace disque
+    local required_space=20  # Go
+    local available_space
+    available_space=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
+    if [ "${available_space}" -lt "${required_space}" ]; then
+        error "Espace disque insuffisant : ${available_space}G disponible, ${required_space}G requis"
+    }
+
+    # Vérification de la RAM
+    local required_ram=4  # Go
+    local available_ram
+    available_ram=$(free -g | awk '/^Mem:/{print $2}')
+    if [ "${available_ram}" -lt "${required_ram}" ]; then
+        error "RAM insuffisante : ${available_ram}G disponible, ${required_ram}G requis"
+    }
+
     # Vérification CPU
-    local cpu_cores
-    cpu_cores=$(nproc)
-    if [ "$cpu_cores" -lt "$min_cpu" ]; then
-        warn "Nombre de cœurs CPU insuffisant: $cpu_cores (minimum recommandé: $min_cpu)"
+    local required_cores=2
+    local available_cores
+    available_cores=$(nproc)
+    if [ "${available_cores}" -lt "${required_cores}" ]; then
+        error "Nombre de cœurs CPU insuffisant : ${available_cores} disponible, ${required_cores} requis"
+    }
+
+    # Vérification de Docker
+    if ! command -v docker >/dev/null 2>&1; then
+        error "Docker n'est pas installé"
+    }
+
+    # Vérification de la version de Docker
+    local docker_version
+    docker_version=$(docker --version | awk '{print $3}' | tr -d ',')
+    if ! printf '%s\n' "20.10.0" "$docker_version" | sort -V -C; then
+        error "Version de Docker trop ancienne. Version 20.10.0 ou supérieure requise"
+    }
+
+    # Vérification des permissions Docker
+    if ! docker ps >/dev/null 2>&1; then
+        error "Permissions Docker insuffisantes"
+    }
+
+    log "Vérification des prérequis système terminée avec succès"
+}
+
+validate_docker_compose() {
+    local compose_file="$1"
+    log "Validation de la configuration Docker Compose..."
+
+    if ! command -v docker-compose &>/dev/null; then
+        error "docker-compose n'est pas installé"
     fi
-    
-    # Vérification espace disque
-    check_disk_space "/" "$min_disk"
+
+    if [ ! -f "$compose_file" ]; then
+        error "Le fichier $compose_file n'existe pas"
+    fi
+
+    # Vérification de la syntaxe
+    if ! docker-compose -f "$compose_file" config --quiet; then
+        # En cas d'erreur, afficher le détail
+        docker-compose -f "$compose_file" config
+        error "La configuration Docker Compose est invalide"
+    fi
+
+    log "Configuration Docker Compose validée"
 }
 
 # Test de connexion internet
@@ -711,20 +757,26 @@ version: '3'
 
 services:
 EOT
-
+    
     # Services de base
     generate_traefik_config "$compose_file"
     generate_authelia_config "$compose_file"
     generate_admin_services "$compose_file"
 
-    # Services utilisateur (une seule fois par utilisateur)
+    # Services utilisateur (on garde trace des services déjà générés)
+    declare -A generated_services
     for user_info in "${INITIAL_USERS[@]}"; do
         IFS=':' read -r username password _ <<< "$user_info"
         local user_id=$((1000 + $(get_next_user_id)))
-        generate_user_services "$username" "$user_id" "$compose_file"
+        
+        # On vérifie que les services n'ont pas déjà été générés pour cet utilisateur
+        if [[ -z "${generated_services[$username]}" ]]; then
+            generate_user_services "$username" "$user_id" "$compose_file"
+            generated_services[$username]=1
+        fi
     done
 
-    # Section networks à la fin
+    # Finalisation avec la section networks
     cat >> "$compose_file" << EOT
 
 networks:
@@ -919,17 +971,13 @@ EOT
 generate_user_services() {
     local username=$1
     local user_id=$2
-    local compose_file="${3:-$INSTALL_DIR/docker-compose.yml}"  # Utilise une valeur par défaut
+    local compose_file=$3
     
     log "Génération des services pour l'utilisateur $username..."
     
-    # Services de base pour chaque utilisateur
-    for service in "${USER_SERVICES[@]}"; do
-        case $service in
-            "homarr"|"calibre"|"filebrowser")
-                generate_user_service "$username" "$service" "$user_id" "$compose_file"
-                ;;
-        esac
+    # On s'assure que chaque service n'est généré qu'une fois
+    for service in "homarr" "calibre" "filebrowser"; do
+        generate_user_service "$username" "$service" "$user_id" "$compose_file"
     done
 }
 
@@ -940,13 +988,23 @@ generate_user_service() {
     local compose_file=$4
     
     log "Configuration du service $service pour $username..."
+
+    # Vérification des paramètres
+    if [[ -z "$username" ]] || [[ -z "$service" ]] || [[ -z "$user_id" ]] || [[ -z "$compose_file" ]]; then
+        error "Paramètres manquants pour generate_user_service"
+    }
+
+    # Vérification des variables globales nécessaires
+    if [[ -z "$DOMAIN" ]] || [[ -z "$TZ" ]]; then
+        error "Variables d'environnement DOMAIN ou TZ non définies"
+    }
     
     case $service in
         "homarr")
             cat >> "$compose_file" << EOT
-  homarr-${username}:
-    image: ${DOCKER_IMAGES[$service]}
-    container_name: homarr-${username}
+  ${service}-${username}:
+    image: ${DOCKER_IMAGES[$service]:-ghcr.io/ajnart/homarr:latest}
+    container_name: ${service}-${username}
     environment:
       - PUID=${user_id}
       - PGID=${user_id}
@@ -958,8 +1016,8 @@ generate_user_service() {
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.homarr-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
-      - "traefik.http.routers.homarr-${username}.middlewares=authelia@docker"
+      - "traefik.http.routers.${service}-${username}.rule=Host(\`home.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
+      - "traefik.http.routers.${service}-${username}.middlewares=authelia@docker"
     restart: unless-stopped
 
 EOT
@@ -967,23 +1025,23 @@ EOT
             
         "calibre")
             cat >> "$compose_file" << EOT
-  calibre-${username}:
-    image: ${DOCKER_IMAGES["calibre"]}
-    container_name: calibre-${username}
+  ${service}-${username}:
+    image: ${DOCKER_IMAGES[$service]:-linuxserver/calibre-web:latest}
+    container_name: ${service}-${username}
     environment:
       - PUID=${user_id}
       - PGID=${user_id}
       - TZ=${TZ}
     volumes:
-      - ./calibre/${username}:/config
+      - ./${service}/${username}:/config
       - ./data/users/${username}/books:/books
     networks:
       - proxy
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.calibre-${username}.rule=Host(\`books.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
-      - "traefik.http.routers.calibre-${username}.middlewares=authelia@docker"
-      - "traefik.http.services.calibre-${username}.loadbalancer.server.port=8083"
+      - "traefik.http.routers.${service}-${username}.rule=Host(\`books.${DOMAIN}\`) && Headers(\`Remote-User\`, \`${username}\`)"
+      - "traefik.http.routers.${service}-${username}.middlewares=authelia@docker"
+      - "traefik.http.services.${service}-${username}.loadbalancer.server.port=8083"
     restart: unless-stopped
 
 EOT
@@ -992,7 +1050,7 @@ EOT
         "filebrowser")
             cat >> "$compose_file" << EOT
   files-${username}:
-    image: ${DOCKER_IMAGES["filebrowser"]}
+    image: ${DOCKER_IMAGES[$service]:-filebrowser/filebrowser:latest}
     container_name: files-${username}
     user: "${user_id}:${user_id}"
     volumes:
@@ -1014,8 +1072,14 @@ EOT
             
         *)
             warn "Service $service non reconnu"
+            return 1
             ;;
     esac
+
+    # Vérification que l'écriture s'est bien passée
+    if [ $? -ne 0 ]; then
+        error "Erreur lors de la génération de la configuration pour ${service}-${username}"
+    }
 }
 
 # Finalisation du docker-compose
@@ -1830,19 +1894,31 @@ show_config_summary() {
 
 # Fonction de nettoyage
 cleanup() {
-    local exit_code=$?
+    local exit_code=$1
+    local keep_data=${2:-false}
+    
     if [ $exit_code -ne 0 ]; then
-        log "Erreur détectée (code: $exit_code), nettoyage en cours..."
+        log "Nettoyage après erreur (code: $exit_code)..."
         
+        # Arrêt des conteneurs
         if [ -f "$INSTALL_DIR/docker-compose.yml" ]; then
-            cd "$INSTALL_DIR" && docker-compose down 2>/dev/null || true
+            cd "$INSTALL_DIR" && docker-compose down --remove-orphans || true
         fi
         
+        # Sauvegarde de la configuration existante
         if [ -d "$INSTALL_DIR" ]; then
-            mv "$INSTALL_DIR" "${INSTALL_DIR}_failed_$(date +%Y%m%d_%H%M%S)"
+            local backup_dir="${INSTALL_DIR}_failed_$(date +%Y%m%d_%H%M%S)"
+            mv "$INSTALL_DIR" "$backup_dir"
+            log "Configuration sauvegardée dans $backup_dir"
+        fi
+        
+        # Nettoyage des utilisateurs si nécessaire
+        if [ "$keep_data" = "false" ]; then
+            for username in "${INITIAL_USERS[@]}"; do
+                userdel -r "$username" 2>/dev/null || true
+            done
         fi
     fi
-    exit $exit_code
 }
 
 # Déploiement des services
@@ -1851,18 +1927,25 @@ deploy_services() {
     
     cd "$INSTALL_DIR" || error "Impossible d'accéder à $INSTALL_DIR"
     
-    # Afficher le contenu pour débogage
-    echo "Contenu du docker-compose.yml :"
-    cat docker-compose.yml
+    # Validation de la configuration
+    validate_docker_compose "$INSTALL_DIR/docker-compose.yml"
     
-    # Vérification de la configuration
-    docker-compose config --quiet || error "Configuration Docker Compose invalide"
+    # Création du réseau proxy s'il n'existe pas
+    if ! docker network ls | grep -q "proxy"; then
+        docker network create proxy || error "Impossible de créer le réseau proxy"
+    fi
     
-    # Création du réseau si nécessaire
-    docker network create proxy 2>/dev/null || true
+    # Pull des images avant le démarrage
+    log "Téléchargement des images Docker..."
+    if ! docker-compose pull; then
+        error "Erreur lors du téléchargement des images"
+    fi
     
     # Démarrage des services
-    docker-compose up -d || error "Échec du démarrage des services"
+    log "Démarrage des services..."
+    if ! docker-compose up -d; then
+        error "Erreur lors du démarrage des services"
+    fi
     
     # Vérification des services
     verify_services
