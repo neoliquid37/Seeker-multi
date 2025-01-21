@@ -264,14 +264,14 @@ show_progress() {
 # Vérification des prérequis système
 check_system_requirements() {
     log "Vérification des prérequis système..."
-
+    
     # Vérification de l'espace disque
     local required_space=20  # Go
     local available_space
     available_space=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
     if [ "${available_space}" -lt "${required_space}" ]; then
         error "Espace disque insuffisant : ${available_space}G disponible, ${required_space}G requis"
-    }
+    fi
 
     # Vérification de la RAM
     local required_ram=4  # Go
@@ -279,7 +279,7 @@ check_system_requirements() {
     available_ram=$(free -g | awk '/^Mem:/{print $2}')
     if [ "${available_ram}" -lt "${required_ram}" ]; then
         error "RAM insuffisante : ${available_ram}G disponible, ${required_ram}G requis"
-    }
+    fi
 
     # Vérification CPU
     local required_cores=2
@@ -287,24 +287,24 @@ check_system_requirements() {
     available_cores=$(nproc)
     if [ "${available_cores}" -lt "${required_cores}" ]; then
         error "Nombre de cœurs CPU insuffisant : ${available_cores} disponible, ${required_cores} requis"
-    }
+    fi
 
     # Vérification de Docker
     if ! command -v docker >/dev/null 2>&1; then
         error "Docker n'est pas installé"
-    fi  # Changé } en fi
+    fi
 
     # Vérification de la version de Docker
     local docker_version
     docker_version=$(docker --version | awk '{print $3}' | tr -d ',')
     if ! printf '%s\n' "20.10.0" "$docker_version" | sort -V -C; then
         error "Version de Docker trop ancienne. Version 20.10.0 ou supérieure requise"
-    fi  # Changé } en fi
+    fi
 
     # Vérification des permissions Docker
     if ! docker ps >/dev/null 2>&1; then
         error "Permissions Docker insuffisantes"
-    fi  # Changé } en fi
+    fi
 
     log "Vérification des prérequis système terminée avec succès"
 }
