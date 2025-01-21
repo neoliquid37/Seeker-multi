@@ -42,6 +42,10 @@ ADMIN_UID="1000"
 ADMIN_GID="1000"
 START_UID="1001" # UID de départ pour les utilisateurs normaux
 
+set -e  # Stop on error
+set -u  # Error on undefined variables
+set -o pipefail  # Exit on pipe failures
+
 exec 5>&1
 trap 'echo "DEBUG: Sortie capturée: $BASH_COMMAND"' DEBUG
 
@@ -696,21 +700,18 @@ setup_quotas_final() {
 generate_base_docker_compose() {
     log "Génération de la configuration Docker de base..."
     
-    echo "DEBUG: Début generate_base_docker_compose"
+    local compose_file="$DOCKER_COMPOSE_FILE"
     
-    # Créer le fichier docker-compose.yml de base
-    cat > "$DOCKER_COMPOSE_FILE" << EOF
-version: '3'
-
-services:
-EOF
+    {
+        echo "version: '3'"
+        echo ""
+        echo "services:"
+    } > "$compose_file"
     
-    # Ajout des services
     generate_traefik_config
     generate_authelia_config
     generate_admin_services
     
-    echo "DEBUG: Fin generate_base_docker_compose"
     log "Configuration Docker générée"
 }
 
@@ -1928,7 +1929,4 @@ verify_installation() {
     log "Vérification terminée"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    set -e  # Arrête sur erreur
-    main "$@"
-fi
+main "$@"
