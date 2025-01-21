@@ -1854,6 +1854,10 @@ deploy_services() {
     
     cd "$INSTALL_DIR" || error "Impossible d'accéder à $INSTALL_DIR"
     
+    # Afficher le contenu pour débogage
+    echo "Contenu du docker-compose.yml :"
+    cat docker-compose.yml
+    
     # Vérification de la configuration
     docker-compose config --quiet || error "Configuration Docker Compose invalide"
     
