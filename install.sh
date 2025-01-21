@@ -797,11 +797,15 @@ generate_base_docker_compose() {
         echo "version: '3'"
         echo ""
         echo "services:"
+        echo ""
         
         # Services de base
         generate_traefik_config
+        echo ""
         generate_authelia_config
+        echo ""
         generate_admin_services
+        echo ""
         
         # Services utilisateur
         for user_info in "${INITIAL_USERS[@]}"; do
@@ -810,12 +814,12 @@ generate_base_docker_compose() {
                 if [ -n "$username" ]; then
                     local user_id=$((1000 + $(get_next_user_id)))
                     generate_user_services "$username" "$user_id"
+                    echo ""
                 fi
             fi
         done
         
         # Section networks à la fin
-        echo ""
         echo "networks:"
         echo "  proxy:"
         echo "    external: true"
@@ -857,15 +861,9 @@ validate_compose_file() {
 }
 
 # Configuration Traefik
+# Fonction de base pour la génération
 generate_traefik_config() {
-    local compose_file="$1"
-    log "Configuration de Traefik..."
-    
-    if [ ! -f "$compose_file" ]; then
-        error "Fichier docker-compose.yml non trouvé"
-    fi
-    
-    cat >> "$compose_file" << EOT
+    cat << EOT
   traefik:
     image: traefik:latest
     container_name: traefik
@@ -893,7 +891,6 @@ generate_traefik_config() {
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.middlewares=authelia@docker,admin-only@docker"
     restart: unless-stopped
-
 EOT
 }
 
