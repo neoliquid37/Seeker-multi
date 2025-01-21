@@ -993,12 +993,12 @@ generate_user_service() {
     # Vérification des paramètres
     if [[ -z "$username" ]] || [[ -z "$service" ]] || [[ -z "$user_id" ]] || [[ -z "$compose_file" ]]; then
         error "Paramètres manquants pour generate_user_service"
-    }
+    fi
 
     # Vérification des variables globales nécessaires
     if [[ -z "$DOMAIN" ]] || [[ -z "$TZ" ]]; then
         error "Variables d'environnement DOMAIN ou TZ non définies"
-    }
+    fi
     
     case $service in
         "homarr")
@@ -1080,7 +1080,7 @@ EOT
     # Vérification que l'écriture s'est bien passée
     if [ $? -ne 0 ]; then
         error "Erreur lors de la génération de la configuration pour ${service}-${username}"
-    }
+    fi
 }
 
 # Finalisation du docker-compose
