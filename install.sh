@@ -153,9 +153,9 @@ ADMIN_SERVICES=(
 
 # Versions des images Docker (pour contrôle de version)
 declare -A DOCKER_IMAGES=(
-    ["traefik"]="traefik:latest"
+    ["traefik"]="traefik:v2.10"  # Version spécifique de Traefik
     ["authelia"]="authelia/authelia:latest"
-    ["plex"]="linuxserver/plex:latest"
+    ["plex"]="plexinc/pms-docker:latest"  # Image officielle Plex
     ["qbittorrent"]="linuxserver/qbittorrent:latest"
     ["sonarr"]="linuxserver/sonarr:latest"
     ["radarr"]="linuxserver/radarr:latest"
@@ -166,7 +166,10 @@ declare -A DOCKER_IMAGES=(
     ["homarr"]="ghcr.io/ajnart/homarr:latest"
     ["calibre"]="linuxserver/calibre-web:latest"
     ["filebrowser"]="filebrowser/filebrowser:latest"
-    ["flaresolverr"]="ghcr.io/flaresolverr/flaresolverr:latest"	
+    ["flaresolverr"]="ghcr.io/flaresolverr/flaresolverr:latest"
+    ["scrutiny"]="ghcr.io/analogj/scrutiny:master"  # Correction du dépôt Scrutiny
+    ["watchtower"]="containrrr/watchtower:latest"
+    ["uptime-kuma"]="louislam/uptime-kuma:latest"
 )
 
 # Configuration des volumes par défaut
@@ -1958,12 +1961,25 @@ deploy_services() {
     # Validation de la configuration
     validate_docker_compose "$INSTALL_DIR/docker-compose.yml"
     
-    # Création du réseau proxy s'il n'existe pas
+    # Création du réseau si nécessaire
     if ! docker network ls | grep -q "proxy"; then
-        docker network create proxy || error "Impossible de créer le réseau proxy"
+        docker network create proxy
     fi
     
-    # Pull des images avant le démarrage
+    # Test de disponibilité des images
+    log "Vérification des images Docker..."
+    local failed_images=()
+    for image in "${DOCKER_IMAGES[@]}"; do
+        if ! docker pull "$image" &>/dev/null; then
+            failed_images+=("$image")
+        fi
+    done
+
+    if [ ${#failed_images[@]} -gt 0 ]; then
+        error "Images inaccessibles: ${failed_images[*]}"
+    fi
+    
+    # Téléchargement des images
     log "Téléchargement des images Docker..."
     if ! docker-compose pull; then
         error "Erreur lors du téléchargement des images"
@@ -1972,7 +1988,7 @@ deploy_services() {
     # Démarrage des services
     log "Démarrage des services..."
     if ! docker-compose up -d; then
-        error "Erreur lors du démarrage des services"
+        error "Échec du démarrage des services"
     fi
     
     # Vérification des services
