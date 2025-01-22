@@ -757,30 +757,20 @@ prepare_directories() {
 setup_quotas_final() {
     log "Configuration finale des quotas..."
     
-    # Désactivation des quotas existants
-    log "Désactivation des quotas existants..."
-    quotaoff -avug || true
-    
-    # Sauvegarde du fstab
-    backup_file "/etc/fstab"
-    
-    # Ajout de l'option usrquota si pas présente
-    if ! grep -q usrquota /etc/fstab; then
-        log "Ajout de l'option usrquota dans fstab..."
-        sed -i 's/defaults/defaults,usrquota/' /etc/fstab
+    # Vérifier le système de fichiers
+    local fs_type=$(df -T / | awk 'NR==2 {print $2}')
+    if [ "$fs_type" = "ext4" ]; then
+        # Utiliser les quotas natifs ext4
+        tune2fs -O quota,usrquota,grpquota /dev/sda3
+        mount -o remount /
+    else
+        # Ancienne méthode pour les autres systèmes de fichiers
+        quotaoff -avug || true
+        backup_file "/etc/fstab"
+        mount -o remount,usrquota /
+        quotacheck -fugm /
+        quotaon -av
     fi
-    
-    # Remontage du système de fichiers
-    log "Remontage du système de fichiers..."
-    mount -o remount,usrquota /
-    
-    # Initialisation des quotas
-    log "Initialisation des quotas..."
-    quotacheck -fugm /
-    
-    # Activation des quotas
-    log "Activation des quotas..."
-    quotaon -av
     
     log "Configuration des quotas terminée"
 }
@@ -2119,23 +2109,167 @@ show_completion_message() {
 # Vérification de l'installation
 verify_installation() {
     log "Vérification de l'installation..."
+    local errors=0
+    local warnings=0
     
-    # Vérification des services
-    if ! docker-compose ps | grep -q "Up"; then
-        error "Certains services ne sont pas démarrés"
-    fi
+    # Vérification des services Docker
+    log "Vérification des services Docker..."
+    while IFS= read -r line; do
+        if [[ $line =~ ^([a-zA-Z0-9_-]+)[[:space:]].*[[:space:]]([A-Za-z]+)[[:space:]]*$ ]]; then
+            local container="${BASH_REMATCH[1]}"
+            local status="${BASH_REMATCH[2]}"
+            if [ "$status" != "Up" ]; then
+                warn "Service $container n'est pas démarré (status: $status)"
+                docker logs "$container" | tail -n 50
+                ((warnings++))
+            fi
+        fi
+    done < <(docker-compose ps)
+
+    # Vérification de l'accès web avec délai progressif
+    log "Vérification de l'accès web..."
+    local urls=(
+        "home.${DOMAIN}"
+        "traefik.${DOMAIN}"
+        "auth.${DOMAIN}"
+    )
     
-    # Vérification des accès web
-    if ! curl -k -s "https://home.$DOMAIN" > /dev/null; then
-        warn "L'interface web n'est pas accessible"
-    fi
-    
+    for url in "${urls[@]}"; do
+        local attempt=1
+        local max_attempts=5
+        local wait_time=5
+        
+        while [ $attempt -le $max_attempts ]; do
+            log "Test d'accès à https://${url} (tentative $attempt/$max_attempts)"
+            if curl -k -s --max-time 5 "https://${url}" > /dev/null; then
+                log "  ✓ https://${url} est accessible"
+                break
+            else
+                if [ $attempt -eq $max_attempts ]; then
+                    warn "  ✗ https://${url} n'est pas accessible après $max_attempts tentatives"
+                    ((warnings++))
+                else
+                    sleep $wait_time
+                    ((wait_time*=2))
+                fi
+            fi
+            ((attempt++))
+        done
+    done
+
     # Vérification des quotas
+    log "Vérification des quotas..."
     if ! quota -v > /dev/null 2>&1; then
-        warn "Les quotas ne semblent pas fonctionner"
+        warn "Les quotas ne sont pas correctement configurés"
+        ((warnings++))
     fi
+
+    # Vérification des permissions
+    log "Vérification des permissions..."
+    local paths=(
+        "/opt/seedbox"
+        "/opt/seedbox/traefik"
+        "/opt/seedbox/authelia"
+    )
     
-    log "Vérification terminée"
+    for path in "${paths[@]}"; do
+        if [ ! -w "$path" ]; then
+            error "Permissions insuffisantes sur $path"
+            ((errors++))
+        fi
+    done
+
+    # Résumé
+    if [ $errors -gt 0 ]; then
+        error "$errors erreur(s) détectée(s) lors de la vérification"
+        return 1
+    elif [ $warnings -gt 0 ]; then
+        warn "$warnings avertissement(s) - l'installation est fonctionnelle mais nécessite votre attention"
+        return 0
+    else
+        log "Vérification terminée avec succès"
+        return 0
+    fi
+}
+
+retry_failed_services() {
+    log "Tentative de récupération des services en échec..."
+    local max_retries=3
+    local wait_time=10
+    local services_to_retry=()
+
+    # Identifier les services en échec
+    while IFS= read -r line; do
+        if [[ $line =~ ^([a-zA-Z0-9_-]+)[[:space:]].*Exit ]]; then
+            services_to_retry+=("${BASH_REMATCH[1]}")
+        fi
+    done < <(docker-compose ps)
+
+    if [ ${#services_to_retry[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    for service in "${services_to_retry[@]}"; do
+        log "Tentative de redémarrage de $service..."
+        
+        for ((i=1; i<=max_retries; i++)); do
+            docker-compose restart "$service"
+            sleep $wait_time
+
+            if docker-compose ps "$service" | grep -q "Up"; then
+                log "Service $service redémarré avec succès"
+                break
+            else
+                if [ $i -eq $max_retries ]; then
+                    error "Impossible de redémarrer $service après $max_retries tentatives"
+                else
+                    warn "Tentative $i/$max_retries échouée pour $service, nouvelle tentative..."
+                    wait_time=$((wait_time * 2))
+                fi
+            fi
+        done
+    done
+}
+
+generate_diagnostic_report() {
+    local report_file="/tmp/seedbox_diagnostic_$(date +%Y%m%d_%H%M%S).txt"
+    {
+        echo "=== Rapport de diagnostic Seedbox ==="
+        echo "Date: $(date)"
+        echo "Version du script: ${SCRIPT_VERSION:-inconnu}"
+        echo ""
+        
+        echo "=== Configuration système ==="
+        uname -a
+        echo "CPU: $(nproc) cœurs"
+        echo "RAM: $(free -h)"
+        echo "Espace disque:"
+        df -h
+        
+        echo -e "\n=== Configuration Docker ==="
+        docker version
+        docker-compose version
+        
+        echo -e "\n=== Services Docker ==="
+        docker-compose ps
+        
+        echo -e "\n=== Logs des services ==="
+        docker-compose ps -q | while read -r container; do
+            echo "=== Logs de $container ==="
+            docker logs "$container" | tail -n 50
+            echo ""
+        done
+        
+        echo -e "\n=== Configuration réseau ==="
+        ip addr
+        netstat -tulpn
+        
+        echo -e "\n=== Quotas ==="
+        quota -v
+        
+    } > "$report_file"
+
+    log "Rapport de diagnostic généré: $report_file"
 }
 
 main "$@"
