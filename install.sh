@@ -746,6 +746,9 @@ prepare_directories() {
         create_secure_directory "$INSTALL_DIR/$dir"
     done
 
+    # Configuration des services
+    configure_authelia  # Ajout de l'appel ici
+
     # Fichiers spéciaux
     touch "$INSTALL_DIR/traefik/acme.json"
     chmod 600 "$INSTALL_DIR/traefik/acme.json"
@@ -901,6 +904,7 @@ generate_traefik_config() {
 EOT
 }
 
+# Configuration du conteneur Authelia dans docker-compose.yml
 generate_authelia_config() {
     cat << EOT
   authelia:
@@ -919,6 +923,64 @@ generate_authelia_config() {
       - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
     restart: unless-stopped
 EOT
+}
+
+# Configuration du service Authelia lui-même
+configure_authelia() {
+    local config_dir="$INSTALL_DIR/authelia"
+    local encryption_key=$(openssl rand -hex 64)
+
+    # Création des fichiers de configuration
+    mkdir -p "$config_dir"
+    
+    # Configuration principale
+    cat > "$config_dir/configuration.yml" << EOL
+---
+server:
+  host: 0.0.0.0
+  port: 9091
+
+log:
+  level: info
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+
+access_control:
+  default_policy: one_factor
+  rules:
+    - domain: "*.${DOMAIN}"
+      policy: one_factor
+
+session:
+  name: authelia_session
+  domain: ${DOMAIN}
+  expiration: 3600
+  inactivity: 300
+  secret: ${encryption_key}
+
+storage:
+  local:
+    path: /config/db.sqlite3
+  encryption_key: ${encryption_key}
+
+notifier:
+  filesystem:
+    filename: /config/notification.txt
+
+access_control:
+  default_policy: deny
+  rules:
+    - domain: "auth.${DOMAIN}"
+      policy: bypass
+    - domain: "*.${DOMAIN}"
+      policy: one_factor
+EOL
+
+    # Correction des permissions
+    chown -R "$ADMIN_UID:$ADMIN_GID" "$config_dir"
+    chmod 600 "$config_dir/configuration.yml"
 }
 
 generate_admin_services() {
@@ -1649,16 +1711,17 @@ EOF
     chown -R "$user_id:$user_id" "$config_dir" "$library_dir"
 }
 
-# Configuration de Filebrowser
+# Correction de la configuration filebrowser
 configure_filebrowser() {
     local username=$1
     local user_id=$2
     
-    log "Configuration de Filebrowser pour $username"
-    
     local config_dir="$INSTALL_DIR/filebrowser/$username"
-    mkdir -p "$config_dir"
+    local database_dir="$config_dir/database"
     
+    mkdir -p "$database_dir"
+    
+    # Configuration correcte du chemin de la base de données
     cat > "$config_dir/settings.json" << EOF
 {
   "port": 80,
@@ -1667,29 +1730,17 @@ configure_filebrowser() {
   "log": "stdout",
   "database": "/database/filebrowser.db",
   "root": "/data",
-  "auth.method": "noauth",
-  "users": {
-    "defaults": {
-      "scope": ".",
-      "locale": "fr",
-      "viewMode": "list",
-      "singleClick": false,
-      "perm": {
-        "admin": false,
-        "execute": true,
-        "create": true,
-        "rename": true,
-        "modify": true,
-        "delete": true,
-        "share": true,
-        "download": true
-      }
-    }
-  }
+  "auth.method": "noauth"
 }
 EOF
 
+    # Correction des permissions
     chown -R "$user_id:$user_id" "$config_dir"
+    chmod 755 "$config_dir"
+    chmod 755 "$database_dir"
+    touch "$database_dir/filebrowser.db"
+    chown "$user_id:$user_id" "$database_dir/filebrowser.db"
+    chmod 644 "$database_dir/filebrowser.db"
 }
 
 #######################
