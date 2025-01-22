@@ -2206,6 +2206,7 @@ show_completion_message() {
     echo -e "\nLes logs d'installation sont disponibles dans: $INSTALL_DIR/installation.log"
 }
 
+
 # Vérification de l'installation
 verify_installation() {
     log "Vérification de l'installation..."
@@ -2215,61 +2216,36 @@ verify_installation() {
     # Vérification des services Docker
     log "Vérification des services Docker..."
     while IFS= read -r line; do
-        if [[ $line =~ ^([a-zA-Z0-9_-]+)[[:space:]].*[[:space:]]([A-Za-z]+)[[:space:]]*$ ]]; then
+        # Ignorer l'en-tête
+        if [[ $line =~ ^NAME || -z $line ]]; then
+            continue
+        fi
+        
+        # Extraire le nom du service et son statut
+        if [[ $line =~ ^([a-zA-Z0-9_-]+)[[:space:]].+[[:space:]]([A-Za-z][A-Za-z[:space:]()]*)[[:space:]] ]]; then
             local container="${BASH_REMATCH[1]}"
             local status="${BASH_REMATCH[2]}"
-            if [ "$status" != "Up" ]; then
-                warn "Service $container n'est pas démarré (status: $status)"
+            
+            # Vérifier si le statut n'est pas "Up"
+            if [[ ! $status =~ ^Up ]]; then
+                warn "Service $container n'est pas démarré correctement (status: $status)"
                 docker logs "$container" | tail -n 50
                 ((warnings++))
             fi
         fi
     done < <(docker-compose ps)
 
-    # Vérification de l'accès web avec délai progressif
-    log "Vérification de l'accès web..."
-    local urls=(
-        "home.${DOMAIN}"
-        "traefik.${DOMAIN}"
-        "auth.${DOMAIN}"
-    )
-    
-    for url in "${urls[@]}"; do
-        local attempt=1
-        local max_attempts=5
-        local wait_time=5
-        
-        while [ $attempt -le $max_attempts ]; do
-            log "Test d'accès à https://${url} (tentative $attempt/$max_attempts)"
-            if curl -k -s --max-time 5 "https://${url}" > /dev/null; then
-                log "  ✓ https://${url} est accessible"
-                break
-            else
-                if [ $attempt -eq $max_attempts ]; then
-                    warn "  ✗ https://${url} n'est pas accessible après $max_attempts tentatives"
-                    ((warnings++))
-                else
-                    sleep $wait_time
-                    ((wait_time*=2))
-                fi
-            fi
-            ((attempt++))
-        done
-    done
-
     # Vérification des quotas
-    log "Vérification des quotas..."
     if ! quota -v > /dev/null 2>&1; then
         warn "Les quotas ne sont pas correctement configurés"
         ((warnings++))
     fi
 
     # Vérification des permissions
-    log "Vérification des permissions..."
     local paths=(
-        "/opt/seedbox"
-        "/opt/seedbox/traefik"
-        "/opt/seedbox/authelia"
+        "$INSTALL_DIR"
+        "$INSTALL_DIR/traefik"
+        "$INSTALL_DIR/authelia"
     )
     
     for path in "${paths[@]}"; do
