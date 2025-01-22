@@ -2012,15 +2012,41 @@ deploy_services() {
 # Vérification des services
 verify_services() {
     log "Vérification des services..."
-    local timeout=300  # 5 minutes
+    local timeout=600  # 10 minutes
     local interval=10  # 10 secondes
     local elapsed=0
     
     while [ $elapsed -lt $timeout ]; do
-        if docker-compose ps | grep -q "Exit"; then
-            error "Certains services ont échoué au démarrage"
+        local failed_services=()
+        local pending_services=()
+        
+        # Vérifier chaque service individuellement
+        while IFS= read -r line; do
+            if [[ $line =~ ^([a-zA-Z0-9_-]+)[[:space:]].*[[:space:]]([A-Za-z]+)[[:space:]]*$ ]]; then
+                local service="${BASH_REMATCH[1]}"
+                local status="${BASH_REMATCH[2]}"
+                
+                if [ "$status" = "Exit" ]; then
+                    failed_services+=("$service")
+                    # Afficher les logs du service en échec
+                    log "Logs du service $service en échec:"
+                    docker-compose logs --tail=50 "$service"
+                elif [ "$status" != "Up" ]; then
+                    pending_services+=("$service")
+                fi
+            fi
+        done < <(docker-compose ps)
+        
+        # Si des services ont échoué, tenter de les redémarrer
+        if [ ${#failed_services[@]} -gt 0 ]; then
+            warn "Services en échec: ${failed_services[*]}"
+            for service in "${failed_services[@]}"; do
+                log "Tentative de redémarrage de $service..."
+                docker-compose restart "$service"
+            done
         fi
         
+        # Compter les services en cours d'exécution
         local running_count=$(docker-compose ps | grep -c "Up")
         local total_services=$(docker-compose ps | tail -n +2 | wc -l)
         
@@ -2029,12 +2055,21 @@ verify_services() {
             return 0
         fi
         
+        if [ ${#pending_services[@]} -gt 0 ]; then
+            log "Services en attente: ${pending_services[*]}"
+        fi
+        
         sleep $interval
         elapsed=$((elapsed + interval))
         show_progress $elapsed $timeout "Démarrage des services"
     done
     
-    error "Timeout lors du démarrage des services"
+    # Si on arrive ici, c'est un timeout - générer un rapport détaillé
+    log "Génération du rapport de statut des services..."
+    docker-compose ps
+    docker-compose logs --tail=100
+    
+    error "Timeout lors du démarrage des services après ${timeout}s. Vérifiez les logs ci-dessus pour plus de détails."
 }
 
 # Fonction principale
