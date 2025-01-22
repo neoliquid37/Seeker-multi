@@ -754,25 +754,39 @@ prepare_directories() {
 }
 
 # Configuration des quotas
+# Configuration finale des quotas
 setup_quotas_final() {
     log "Configuration finale des quotas..."
     
-    # Vérifier le système de fichiers
-    local fs_type=$(df -T / | awk 'NR==2 {print $2}')
-    if [ "$fs_type" = "ext4" ]; then
-        # Utiliser les quotas natifs ext4
-        tune2fs -O quota,usrquota,grpquota /dev/sda3
-        mount -o remount /
-    else
-        # Ancienne méthode pour les autres systèmes de fichiers
-        quotaoff -avug || true
-        backup_file "/etc/fstab"
-        mount -o remount,usrquota /
-        quotacheck -fugm /
-        quotaon -av
+    # Désactiver les quotas existants
+    quotaoff -avug || true
+    
+    # Sauvegarder fstab
+    backup_file "/etc/fstab"
+    
+    # Vérifier si les options de quota sont déjà dans fstab
+    if ! grep -q "usrquota,grpquota" /etc/fstab; then
+        # Ajouter les options de quota pour la partition racine
+        sed -i 's|\(defaults\)|\1,usrquota,grpquota|' /etc/fstab
+        
+        # Remonter le système de fichiers avec les nouveaux paramètres
+        mount -o remount,usrquota,grpquota /
     fi
     
-    log "Configuration des quotas terminée"
+    # Créer les fichiers de quota si nécessaire
+    if [ ! -f /aquota.user ] || [ ! -f /aquota.group ]; then
+        quotacheck -cugm /
+    fi
+    
+    # Activer les quotas
+    quotaon -av
+    
+    # Vérifier que les quotas sont activés
+    if ! quotaon -ap 2>/dev/null; then
+        warn "Les quotas n'ont pas pu être activés complètement"
+    else
+        log "Configuration des quotas terminée avec succès"
+    fi
 }
 #######################
 # 5. Fonctions de génération de configuration Docker
